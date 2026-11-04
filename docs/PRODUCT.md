@@ -78,7 +78,7 @@ P pursues that value through an integrated set of choices:
   pretending every implementation has the same authority or behavior.
 - Make first-party functionality prove the same contracts available to other
   implementations. The current bundled composition and implementation scope
-  remain in the [MVP snapshot](mvp-status.md), not in product direction.
+  remain in the [MVP snapshot](archive/mvp-status.md), not in product direction.
 - Keep P core and the bundled first-party implementations required for a
   complete, independently operable installation open source. Optional
   proprietary capabilities remain integrations rather than prerequisites.
@@ -97,7 +97,7 @@ P distinguishes capabilities by where they operate and what crosses the
 session boundary:
 
 - An internal session service runs within the session's isolation boundary and
-  is supervised through the runtime's systemd contract.
+  is supervised by the runtime, through the runtime driver.
 - An external session service runs outside the session and is provided through
   an explicitly granted network endpoint with service-native, session-scoped
   authentication. It may be local to the P instance or remotely operated.
@@ -148,7 +148,7 @@ work. The personal MVP may be rough or specific to that workflow, but it must
 exercise the secure first-party composition and reveal whether concurrent
 sessions and the plugin contracts remain useful under ordinary use. Detailed
 MVP scope and implementation state remain in the
-[MVP snapshot](mvp-status.md).
+[MVP snapshot](archive/mvp-status.md).
 
 The first coherent version shared publicly centers on the concurrent-session
 experience and includes an end-to-end guide for changing a real P workflow
@@ -173,8 +173,9 @@ The strategy is working when:
   workflow change through a plugin without modifying P core;
 - developers continue adapting P through plugins instead of maintaining forks
   or private patches after the first guided example;
-- agent-authored plugins remain within user-approved capabilities and can be
-  disabled or replaced without compromising P's authoritative state;
+- agent-authored plugins run only when the user selects their exact package,
+  stay within the session's capabilities when they run inside a session, and
+  can be disabled or replaced without compromising P's authoritative state;
 - a default installation becomes operational securely without requiring the
   user to select and connect plugins manually;
 - first-party implementations can be replaced without changing authoritative

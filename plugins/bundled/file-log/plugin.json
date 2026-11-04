@@ -1,0 +1,8 @@
+{
+  "schema": "p.plugin/v2",
+  "id": "org.p.filelog",
+  "version": "0.2.0",
+  "description": "Append bounded, reduced P events to a private host file.",
+  "capability": "event-handler",
+  "entry": "p-event-file"
+}

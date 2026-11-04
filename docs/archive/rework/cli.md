@@ -1,0 +1,525 @@
+# Task commands in the CLI
+
+Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md).
+It designs step 7 and builds on steps 2 to 5.
+
+## Summary
+
+**Today** the CLI has three client commands: `p tui`, `p attach` and `p api`.
+Anything the TUI does not offer goes through `p api` with hand-written JSON:
+publication, project deletion, retained-branch deletion, origin changes and
+the repairs. The user picks idempotency keys, polls `operation.inspect`, and
+for a deletion runs a loss inspection, previews, copies a confirmation token
+into the confirm call and polls again
+([user guide](../user-guide.md#discard-or-delete-safely)).
+
+**Proposed:** one task command for each thing a user does, named by noun and
+verb: `p session delete`, `p project create`, `p origin publish`. Each
+command:
+
+- takes the names users see: project paths, `PROJECT:BRANCH`, session UUIDs;
+- makes its own idempotency keys, and with `--key` replays a request whose
+  reply was lost without recomputing it;
+- waits for the operation it starts, unless given `--no-wait`;
+- prints for people by default, and the API's own types with `--json`;
+- for a change whose API method has a dry run, previews it, prints the plan
+  with the refusals and the loss in the CLI's own sentences, asks, and runs
+  it with the change tag; `--force` works exactly as
+  [state-hash-confirmation.md](state-hash-confirmation.md#--force-in-the-cli)
+  defines.
+
+**What users notice:** normal work needs no JSON and no `p api`. `p tui` and
+`p attach` stay as they are; `p attach` also accepts `PROJECT:BRANCH`. `p api`
+stays for protocol work. The host commands (`p daemon`, `p plugins`) keep
+their arguments and output and are listed under their own heading.
+
+**Decided by the maintainer on 2026-11-02:** a script may run a reviewed
+plan by its tag, with `--if-match` and no prompt or countdown
+([below](#--dry-run-and---if-match)).
+
+## The commands
+
+### Names and arguments
+
+Commands are `p NOUN VERB ARGUMENTS [FLAGS]`. Flags may come before or after
+the arguments, as in `p session delete 4f1c… --force`; Go's `flag` package
+stops at the first argument, so each command parses its own flags. No new
+dependency is needed.
+
+| Argument | Form | Example |
+|---|---|---|
+| `PROJECT` | The project path | `team/app` |
+| `PROJECT:BRANCH` | A P branch of a project. The first `:` ends the path, because project paths and Git branch names cannot contain `:` ([plan-shape.md](plan-shape.md#targets)). | `team/app:work` |
+| `SESSION` | A session UUID, or `PROJECT:BRANCH` for the session that holds that branch. A branch is held by at most one session. The CLI resolves it with `session.list`; no match is an error. | `4f1c2a9e-…` or `team/app:work` |
+| `ID` | An operation UUID | `7d3e…` |
+| `NAME` | A service name as `p service list` prints it; opaque to P ([services-plugin.md](services-plugin.md#guarantees)) | `p-project-db.service` |
+
+Every client command accepts `--socket PATH` and `--json`. Socket selection
+is today's: `--socket`, then a nonempty `P_SOCKET`, then
+`/var/lib/p/control.sock`. Each command connects with `api.Dial`, which sends
+`system.hello`, and calls through the typed `api.Do`
+([wire-types.md](wire-types.md#the-version-agreed-at-systemhello)), so the
+request types' `Validate` catches bad arguments before anything is sent.
+From step 9 the daemon answers `invalid` for a bad branch name, URL or
+commit ID, as the source driver decides
+([source-driver.md](source-driver.md#names-urls-and-commit-ids)). The design
+had only the daemon know Git's syntax, but step 9's S2 left the CLI parsing
+branch names and commit IDs by the bundled driver's rules (`api.ValidBranch`
+and `api.ValidOID`), recorded as
+[debt](../../debts/structure.md#the-cli-parses-branch-names-and-commit-ids-by-the-bundled-drivers-rules).
+
+### Command set
+
+The set comes from the API methods left after steps 1 to 6 and from what the
+TUI lets users do today: create projects and sessions, attach, start, stop,
+rename, discard, delete, read details and agent reports, run services, and
+inspect and retry operations. "Asks" marks the commands whose API method has
+a dry run; [Risky changes](#risky-changes) describes them.
+
+| Command | API method | Behavior |
+|---|---|---|
+| `p status` | `system.hello`, `system.health`, `system.inspect` | Instance ID, build version, protocol, configured capabilities (`git`, `runtime`, `services`), control state, record counts |
+| `p project list` | `project.list` | |
+| `p project create PROJECT [--origin URL] [--attach]` | `project.create` | Waits. `--attach` enters the first session when creation makes one, as for a blank project; the TUI does the same. |
+| `p project delete PROJECT` | `project.delete` | Asks, waits. P stops running sessions itself. |
+| `p branch list PROJECT [--retained]` | `project.branches`; `project.retained_branches` with `--retained` | |
+| `p branch rename PROJECT:BRANCH NEW` | `project.retained.rename` | Reads the current tip for `expected_old_tip`, as the TUI does for a session rename; waits |
+| `p branch delete PROJECT:BRANCH` | `project.retained.delete` | Asks, waits |
+| `p origin show PROJECT [--refresh]` | `origin.inspect`; `origin.refresh` with `--refresh` | Shows the status, `fresh`, `unknown` or `local-only`, with the observation time |
+| `p origin refs PROJECT` | `origin.refresh`, then `origin.sources` | Lists refs only from a fresh observation, as the TUI does ([below](#origin-refs-must-be-fresh)) |
+| `p origin set PROJECT URL` | `origin.change`, kind `set` | Reads the current URL for `expected_url`; waits |
+| `p origin remove PROJECT` | `origin.change`, kind `remove` | Same |
+| `p origin publish PROJECT:BRANCH [--to NAME]` | `origin.publish` | Asks, waits. Kind `session` when a session holds the branch, otherwise `retained`. `--to` defaults to the same branch name. Reads `expected_origin_url` with `origin.inspect` and `source_oid` with `project.branches`; a local-only project exits 3. |
+| `p session list [--project PROJECT]` | `session.list` | The project filter is applied by the CLI |
+| `p session show SESSION` | `session.inspect` | Conditions, attachments, the latest unattended agent report, policy, diagnostic |
+| `p session create PROJECT:BRANCH [--from REF \| --from-origin REF] [--attach]` | `session.create` | Waits. Without `--from`, resumes the retained branch (`choice: existing`). `--from` takes a P branch or commit (`choice: new`); a bare branch name is sent as `refs/heads/NAME`, a full ref or a commit ID as given. `--from-origin` refreshes the origin, takes the commit and URL only from a fresh observation, and prints which commit it chose. |
+| `p session create … --replace SESSION` | `session.create.replace` | Asks, waits: replaces a blocked creation with this request. Takes `--from` but not `--from-origin`: a replacement cannot start from the origin. |
+| `p session start SESSION` | `session.start` | Waits for its operation, which completes when the session is ready ([waiting.md](waiting.md#start-and-stop-as-operations)). A ready session prints "already running" and exits 0 ([Start and stop](#start-and-stop)). |
+| `p session stop SESSION` | `session.stop` | Waits for its operation. A stopped session prints "already stopped" and exits 0. |
+| `p session rename SESSION NEW` | `session.rename` | Reads the tip, as the TUI does; waits. A running session is refused. |
+| `p session discard SESSION` | `session.discard` | Asks, waits. P stops a running session itself. |
+| `p session delete SESSION` | `session.delete` | Same |
+| `p session cleanup SESSION` | `session.create.cleanup` | Asks, waits: ends a failed creation and keeps its branch |
+| `p attach SESSION` | `session.start`, `operation.wait` when it returns an operation, then `session.attach` | `session.attach` no longer starts a session ([waiting.md](waiting.md#start-and-stop-as-operations)), so `p attach` calls start first, by the [same rule](#start-and-stop): a ready session attaches at once, otherwise it waits for the start; users see the same result. Also accepts `PROJECT:BRANCH`. |
+| `p service list SESSION` | `session.services` | |
+| `p service start\|stop\|restart SESSION NAME` | `session.service.action` | Returns once queued, with no operation ([below](#changes-without-an-operation)); `p service list` shows progress |
+| `p service logs SESSION NAME` | `session.service.logs` | |
+| `p operation list` | `operation.list` | Shows each operation's key |
+| `p operation show ID` | `operation.inspect` | |
+| `p operation wait ID` | `operation.wait` | Waits until the status is not `running` |
+| `p operation retry ID` | `operation.retry` | Waits |
+
+List commands follow `next` to the end. `p help` lists the commands, and
+`p NOUN --help` describes one noun's commands.
+
+Only `rpc.cancel`, which cancels a request on the caller's own connection,
+has no command.
+
+### Origin refs must be fresh
+
+`p origin refs` and `--from-origin` use refs only when the refresh returned
+`fresh` and every page of `origin.sources` says `fresh`, as the TUI does
+(internal/tui/workflows.go); a failed contact still answers with status
+`unknown` and the cached refs marked `stale` (`OriginAPI.Refresh` and
+`addOriginMethods` in internal/control/origin_api.go). Otherwise they print
+no refs, say when the origin was last reached, and exit 1. A local-only
+project has no refs and exits 3.
+
+### Sample: deleting a session
+
+The output is illustrative:
+
+```text
+$ p session delete team/app:work
+Delete session 4f1c2a9e-… (team/app:work); the branch work is removed too.
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!  THIS WILL LOSE WORK
+!!
+!!  - the container of session 4f1c… and everything in it: uncommitted
+!!    changes, files outside Git, commits not pushed to P; P does not
+!!    look inside
+!!  - 2 commits on branch work will be removed from P's repository;
+!!    P does not check whether the origin has them
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+Delete session 4f1c…? [y/N] y
+Deleted session 4f1c… and branch work.
+```
+
+## Running a change
+
+### Idempotency keys
+
+**Generated:** one key per run call of a method that takes one, `cli-`
+followed by 32 hex digits from `crypto/rand`, the same scheme as the TUI's
+`tui-` keys (`newKey` in internal/tui/model.go). A dry run carries no key. A
+run after a new dry run carries a new tag, so it gets a new key. Start, stop
+and `operation.retry` take none, by the maintainer's decision for start and
+stop.
+
+**Supplied:** `--key KEY` (1 to 128 bytes) lets a script repeat a command
+whose reply it lost, without making the change twice. The repeat cannot
+recompute inputs from live state, which the first request may have changed
+(a new origin URL, a renamed branch, a deleted session). So with `--key`, the
+CLI looks the key up in `operation.list` before it resolves any argument:
+
+1. **Found:** it compares the operation's `kind` and its
+   [`intent`](wire-types.md#the-types), the typed projection of the recorded
+   request, with the command, without reading live state:
+   - the target: a session UUID against `session`; a `PROJECT:BRANCH`
+     against `project` and `branch` as recorded at acceptance;
+   - for `--replace`, the replaced session against `replaces_session`, or a
+     `PROJECT:BRANCH` against `replaces_branch`; that session no longer
+     exists, so only the intent names it;
+   - every choice on the command line (new branch name, creation choice and
+     source, URL, destination), in the form the CLI would send.
+
+   Inputs the CLI would read from live state, such as `expected_old_tip`, are
+   not compared. If all match, it sends nothing and reports or waits for that
+   operation; otherwise it exits 2, as the daemon would refuse the key as
+   `key_reused` (`keyRecordsRequest` in internal/control/operation_journal.go).
+2. **Not found:** it resolves the arguments and sends the request with the
+   key. If the first request is recorded between the lookup and the send,
+   the daemon replays it or refuses the changed request as `key_reused`; the
+   change happens at most once.
+
+The lookup pages `operation.list`; a `key` filter there would make it one
+call. A key whose operation the journal no longer keeps, such as one of a
+deleted project, is not found.
+
+`origin.change` and `origin.publish` record operations
+([waiting.md](waiting.md#origin-change-and-publish-as-operations)), so
+`p origin set`, `remove` and `publish` take `--key` like any other change. On
+a command that asks, a
+`precondition_failed` under `--key` stops with exit 3 instead of asking
+again, so one key is never sent with two tags.
+
+**Shown:** always in `--json` output, inside the operation. In human output
+only when the CLI sent a keyed change and lost the connection before the
+reply: it prints the key and the same command with `--key`, which replays it
+as above. `p operation list` shows every operation's key. Start and stop are
+keyless; after a lost reply the CLI says that repeating the command is safe,
+because a repeat converges ([Start and stop](#start-and-stop)).
+
+### Waiting
+
+A command that starts an operation waits for it with
+[`operation.wait`](waiting.md#operationwait), which returns as soon as the
+status is not `running` (`completed`, `failed`, `superseded` or `blocked`),
+or with the status still `running` when its timeout passes. The CLI asks for
+a timeout of 20 seconds, as the TUI does, inside a budget of 25 seconds for
+the whole call (connect, hello, wait, reply), so it stays under the server's
+30-second deadline. Every other call has a budget of 35 seconds: the
+server's 30-second deadline and 5 seconds for its answer to arrive
+(`callBudget` in cmd/p/call.go). A wait that returns `running` is not an
+error: the CLI prints the operation's phase on standard error if it changed,
+and waits again. So a long build shows its phase at most every 20 seconds.
+
+`--no-wait` prints the operation ID as soon as the daemon accepts the change
+and exits 0; `p operation wait ID` waits later.
+
+Ctrl-C while waiting stops only the CLI. The operation runs on in the
+daemon, and the CLI prints its ID and `p operation wait ID`.
+
+### Changes without an operation
+
+Service actions record no operation, so there is nothing to wait for or look
+up by key:
+
+| Command | Result (`--json` prints it) | Human output | Reply lost |
+|---|---|---|---|
+| `p service start\|stop\|restart` | `{"uuid", "name", "observed_at"}`: today's `ServiceResult` without `v`, with `unit` renamed `name` ([services-plugin.md](services-plugin.md#what-ps-api-and-tui-keep)). It says the runtime queued the action, nothing about its state. | "Queued restart of NAME; `p service list SESSION` shows its progress." Exit 0. | Never resent ([Errors](#errors-and-automatic-repeats)). Says the action may have been queued; exit 1. |
+
+### Start and stop
+
+A start or stop that would change nothing records nothing, and one while
+another is unfinished returns that operation
+([waiting.md](waiting.md#start-and-stop-as-operations)). `p session start`,
+`p session stop` and the start inside `p attach` follow two rules:
+
+- A reply with a `session` reports its state: "already running" or "already
+  stopped", exit 0; `p attach` attaches at once.
+- A reply with an `operation`, new or unfinished, is waited for.
+
+### Output
+
+- **Standard output** carries the result: a list, a record, or the final
+  line ("Deleted session 4f1c…").
+- **Standard error** carries everything addressed to the person: progress,
+  the plan, the loss warning, the prompt, the countdown and errors. The plan
+  and the warning reach the terminal even when standard output goes to a
+  file or `--json` is set.
+- **`--json`** prints one JSON value on standard output, using the
+  `internal/api` types from step 2:
+
+| Command | `--json` prints |
+|---|---|
+| Read | The method's result; for lists, every page's items in one array, without `next` |
+| Change | `{"operation": …}`, the operation after waiting, or as accepted with `--no-wait` |
+| Start and stop | The reply in [Start and stop](#start-and-stop): `changed`, with `operation` or `session` |
+| Change without an operation | The method's result, as in [Changes without an operation](#changes-without-an-operation) |
+| Change that asks | `{"plan": …, "change_tag": …, "operation": …}`: the last dry run, and the operation if it ran |
+| `--dry-run` | The dry run's reply as the API returns it |
+| Any error | `{"error": …}`, the API's error object: `code`, `message` (the kind's name) and `data` ([errors.md](errors.md#the-error-object)) |
+
+Color and bold appear only when standard error is a terminal.
+
+### Exit codes
+
+| Code | Meaning |
+|---|---|
+| 0 | Done: the read succeeded, the operation completed, or with `--no-wait` the daemon accepted it; a start or stop found the session already as asked; `--dry-run` of an allowed change. |
+| 1 | Failed: the daemon could not be reached; it answered `failed`, `not_found`, `not_configured` or `internal`; a `retry` did not succeed in time; the outcome of a service action is unknown; the origin observation is stale; the operation ended `failed` or `superseded`; or a publication completed with status `refused`, because the origin's server rejected the push. |
+| 2 | Usage: the arguments or flags are invalid, found by the CLI or answered `invalid` by the daemon; or a `--key` belongs to another command. |
+| 3 | Not run, nothing changed: the plan is not allowed; the daemon answered `conflict`, `capacity`, `precondition_failed` or `precondition_required`; the user declined or cancelled; or no terminal could ask. |
+| 4 | Not finished: the operation is `blocked`, or the CLI stopped waiting while it runs on. |
+
+`p api` keeps its own rule: 0, or 1 on any error.
+
+### Errors and automatic repeats
+
+An error carries no text: `message` is the kind's name, and `data` holds a
+`reason` code, and where they apply a `target`, a `field` or the `supported`
+protocols ([errors.md](errors.md#the-error-object)). The CLI prints one
+sentence per reason, naming `target` or `field` when present, and falls back
+to its sentence for the kind when it meets a reason it does not know. Error
+reasons and refusal codes share one namespace, so they share the CLI's one
+sentence table ([Printing the plan](#printing-the-plan)). An operation that
+ends `blocked` or `failed` carries a `reason` as well
+([errors.md](errors.md#a-reason-beside-the-diagnostic)); the CLI prints its
+sentence before the diagnostic.
+
+On `retry`, the CLI sends the identical call again, with the same key and
+tag, only when a second call cannot act twice:
+
+| Reason | What the daemon did | The CLI |
+|---|---|---|
+| `session_held`, `project_held` | Refused before dispatch: an operation or another request holds the session or project | When it names an operation: says so, waits for it with `operation.wait`, then repeats. Otherwise as for `too_many_requests`. Any call. |
+| `too_many_requests` | Refused at admission | Repeats after a short pause, for up to 10 seconds. Any call. |
+| `deadline` | Gave up; the handler may already have acted | Repeats a read, a keyed change with the identical request it sent (the key replays it), or a start or stop (a repeat converges), at most twice. Never `operation.retry`, which has no key. Never a service action, which has no key and may already be queued (`Driver.ServiceAction` in internal/runtimedriver/incus/driver_services.go runs `systemctl --no-block` before it answers); it answers as for a lost reply ([Changes without an operation](#changes-without-an-operation)). |
+
+If the operation a `session_held` names ends `blocked`, the repeat answers
+`conflict`, `operation_blocked`, and the CLI stops. A risky run repeated
+after a wait may meet an expired or changed tag; that is
+`precondition_failed`, handled as in [The flow](#the-flow).
+
+## Risky changes
+
+The commands that ask are the ones whose API method has a dry run: the seven
+methods in [state-hash-confirmation.md](state-hash-confirmation.md#the-api).
+They are session discard, delete, create replacement and cleanup;
+project deletion; retained-branch deletion; and publication.
+
+### The flow
+
+```text
+with --key: an operation under that key? its intent matches: report it; else exit 2
+resolve the arguments (PROJECT:BRANCH to a UUID; current tips and URLs)
+dry run: the method without key or if_match
+print the plan
+not allowed?        exit 3, with or without --force
+--dry-run?          exit 0
+--force?            no loss: run now; loss: warning, 10-second countdown, then run
+otherwise:          ask "[y/N]"; anything but y: exit 3
+run: the method with key, if_match = change_tag, and the dry run's inputs
+precondition_failed?
+  say whether the tag expired or the state changed
+  new dry run, print the new plan
+  --force or --key: stop, exit 3          asked: ask again
+wait for the operation, unless --no-wait
+```
+
+The prompt is `[y/N]` and defaults to no, as the TUI's confirmations do; only
+`y` or `yes` runs. Ctrl-C at the prompt or during the countdown sends nothing
+and exits 3. A change tag lasts two minutes, so a slow answer can expire it;
+the run is then refused with `precondition_failed`, and the CLI shows the new
+plan and asks again. `--force` is exactly
+[state-hash-confirmation.md](state-hash-confirmation.md#--force-in-the-cli)'s:
+after a refusal that follows the countdown, the CLI prints the new plan and
+stops, so a forced run never acts on a plan nobody saw. The TUI offers no
+force.
+
+### Printing the plan
+
+The CLI reads only the envelope's `allowed`, `refusals`, `loss` and `gone` to
+decide what to print and whether to warn ([plan-shape.md](plan-shape.md)).
+The API carries no message text, so the CLI owns one sentence per refusal
+code, error reason and kind, and loss kind. The sentences live in one table
+that the TUI and the CLI share, so both say the same thing: `internal/errtext`.
+The TUI takes its error, operation and refusal sentences from it, and since
+step 0p (aa28dfa) its removal review's loss and gone sentences too
+(`errtext.Loss` and `errtext.Gone`).
+
+1. **A heading** from the command's arguments and a few facts of its own
+   `details` type:
+
+| Command | Heading facts |
+|---|---|
+| `p session discard`, `delete` | UUID, `PROJECT:BRANCH`, and whether the branch stays or goes |
+| `p session create --replace`, `cleanup` | The blocked creation's UUID and branch; for replacement, the new request; for cleanup, what it keeps: the branch and shared images |
+| `p project delete` | The project, its sessions and branches, and what deletion keeps: granted host directories, shared images, other projects, and logs already delivered to event handlers, whose retention is the handler's own |
+| `p branch delete` | `PROJECT:BRANCH` and its tip |
+| `p origin publish` | The origin URL, the source commit, the destination and what the push does: create, fast-forward or nothing |
+
+2. **Refusals**, when the plan is not allowed: one sentence per item,
+   naming its `target` when it is not the plan's. For example,
+   `attachment_active`: "A terminal is attached to session 4f1c…. Detach it
+   (Ctrl+B, then d) and try again." The CLI does not print the loss of a
+   refused plan, which can be incomplete
+   ([plan-shape.md](plan-shape.md#a-plan-that-is-not-allowed)).
+3. **Already gone:** one line per `gone` item, as information. It never
+   starts the countdown.
+4. **The loss warning** when `loss` is not empty: the large block from
+   [state-hash-confirmation.md](state-hash-confirmation.md#--force-in-the-cli),
+   one line per item, with or without `--force`. For example, `p_commits`:
+   "2 commits on branch work will be removed from P's repository; P does not
+   check whether the origin has them". An item with `certain: false` reads
+   "possibly: …".
+
+A code the table lacks prints errtext's fallback sentence, which names the
+code, such as "It cannot run now (CODE)." for a refusal. That cannot happen
+in a release: the CLI and the daemon are the same `p` binary, and a unit test
+checks that every code has a sentence.
+
+### Without a terminal
+
+The CLI can ask only when standard input and standard error are both
+terminals. Otherwise:
+
+- Without `--force`, it prints the plan and exits 3: "Not run: no terminal
+  to ask. Run again with `--force`." Nothing is sent.
+- With `--force`, it behaves as on a terminal. The countdown still runs,
+  printed as one line ("Deleting in 10 seconds; send SIGINT to cancel."),
+  and SIGINT or SIGTERM cancels it.
+
+### `--dry-run` and `--if-match`
+
+- `--dry-run` prints the plan, warning included, and sends nothing else.
+  For an allowed change it also prints the change tag on standard output,
+  and on standard error how to run the plan with `--if-match`. With `--json`
+  it prints the reply, including `change_tag` when the change is allowed. It
+  takes no `--key` or `--no-wait`.
+- `--if-match TAG` runs the plan that tag names: no dry run, no prompt and no
+  countdown, because the caller saw that plan from `--dry-run`, warning
+  included, and the daemon runs it only if nothing changed; otherwise the CLI
+  prints the refusal and exits 3. It is the API's own two calls, for scripts
+  that decide from the plan. Decided by the maintainer on 2026-11-02.
+
+`--dry-run`, `--force` and `--if-match` exclude one another.
+
+## `p api`, `p tui`, `p attach` and host commands
+
+**`p api`** stays for protocol work: debugging, a raw view of any reply, and
+the VM scenarios that test the API itself. It does nothing for the user: no
+keys, no waiting, no prompts. Its output and exit codes stay. Other steps
+change it: it sends `system.hello` itself and its params lose `"v":1`
+([wire-types.md](wire-types.md#summary)); its deadline for `operation.wait`
+is the requested timeout plus 5 seconds
+([waiting.md](waiting.md#operationwait)); and its two-minute deadline for
+`project.delete.confirm` goes, because project deletion returns an operation
+at once.
+
+**`p tui`** and **`p attach`** keep their forms, including the positional
+socket argument (`p attach [SOCKET] SESSION`). `p attach` also accepts
+`PROJECT:BRANCH`.
+
+**Host commands** act on files and the state directory directly, not
+through the control socket; offline package management even requires the
+daemon stopped. `p help` lists them under their own heading:
+
+```text
+Host commands (run on the P host as the instance owner):
+  p daemon HOST_JSON
+  p plugins install | update | remove | defaults | conformance | list |
+            run-event …
+  p version
+```
+
+Their arguments and JSON output stay; the NixOS module calls `p daemon` and
+`p plugins defaults` (nix/module.nix). Steps 8 and 9 own any change to them,
+and step 2 changes `p version` to report the protocol string instead of
+`control_api_version`. Step 9's plugin part 2 removed `p plugins activate`,
+`plan-assets` and `emit`, made `run-event` read its selection from host
+configuration, and replaced `plugin_api_version` in `p version` with
+`plugin_schema` and `event_handler_protocol`. `p attach-helper` stays
+unlisted: P runs it itself.
+`p git-hook` went in step 9's S7, when the source driver's pre-receive hook
+became `p-source-git git-hook`. Every command, host commands included,
+exits 2 on a usage error.
+
+## Depends on
+
+Still open in the documents this design builds on:
+
+- **A `key` filter on `operation.list`** would make the replay lookup one
+  call instead of paging; waiting.md does not have one yet.
+
+Settled by step 5:
+
+- **Refusal codes:** every `conflict` reason a risky change meets while it
+  plans, and the codes that only plans use
+  ([control-api.md](../control-api.md#refusals)).
+- **Publication's guards:** `origin.publish` still takes
+  `expected_origin_url` and `source_oid` beside the tag. The CLI reads the
+  URL with `origin.inspect` and the branch's tip with `project.branches`.
+
+## Departures from current docs
+
+Steps 7a and 7b made these changes:
+
+- [User guide](../user-guide.md): every walkthrough uses the task
+  commands instead of `api` helpers and hand-written JSON, and the TUI
+  section names the commands for the workflows the TUI lacks.
+- [Control API](../control-api.md#host-framing-and-request-envelope):
+  the paragraph on `p api` gains the task commands; `p api`'s two-minute
+  deadline had already gone in step 0e.
+- [README](../../../README.md#nixos-installation): the first-run checks use
+  `p status` and `p project list`.
+- `p help` lists the commands (cmd/p/help.go).
+
+## How it will be checked
+
+CLI unit tests against a fake daemon on a Unix socket, as
+cmd/p/main_test.go does today, cover what can lose work or act twice:
+
+- **Confirmation:** a dry run carries no key, and the run repeats its inputs
+  with the tag; nothing runs without `y`; a refused plan exits 3 with or
+  without `--force` and prints no loss; `gone` alone starts no countdown;
+  without a terminal and without `--force`, nothing is sent;
+  `precondition_failed` after a prompt shows the new plan and asks again;
+  `--if-match` sends no dry run; the `--force` tests from
+  [state-hash-confirmation.md](state-hash-confirmation.md#how-it-will-be-checked),
+  on a fake clock.
+- **Replay,** each with the first reply lost: a session rename, a
+  retained-branch rename, and a session deletion named by its old
+  `PROJECT:BRANCH`, repeated with the same `--key`, find the operation by its
+  `intent` and send no change. So does a replacement onto another branch
+  (`p session create app:new --from main --replace app:old`), matched by
+  `branch` and `replaces_branch` after the old session is gone. The same key
+  with another rename destination or creation source, or naming the other
+  of two retained branches in one project, exits 2 without sending. An
+  origin change and a publication replay the same way.
+- **Changes without an operation:** a queued service action prints its
+  result and exits 0; a queued restart followed by a `deadline` or a lost
+  reply issues exactly one action call and exits 1.
+- **Cancellation:** Ctrl-C at the prompt or during the countdown sends
+  nothing; Ctrl-C while waiting exits 4 and leaves the operation running.
+- **Waiting and repeats:** every `operation.wait` asks for 20 seconds within
+  a 25-second call budget; a wait that returns `running` is repeated;
+  `completed` exits 0, `blocked` 4, `failed` and `superseded` 1;
+  `session_held` waits for the named operation, then repeats with the same
+  key and tag.
+- **Start and stop:** a `session` reply prints "already running" or "already
+  stopped", exits 0 and waits for nothing; an `operation` reply, new or
+  unfinished, is waited for. `p attach` attaches at once to a ready session,
+  and on a stopped one starts it, waits, then attaches.
+- **Origin refs:** a successful refresh followed by a failed one, with
+  cached refs present, prints no refs and exits 1.
+- **Sentences:** every refusal code, error and operation reason, error kind
+  and loss kind in `internal/api` has a sentence, and an unknown reason falls back to its
+  kind's.
+
+VM scenario 57, the developer workflow, moves from `p api` to the task
+commands and keeps its outcome checks. The other scenarios keep `p api`,
+because they test the API.

@@ -1,0 +1,16 @@
+ P · Sessions · waiting → running → other       
+ ╭────────────────────────────────────────────╮ 
+ │ All project sessions                       │ 
+ │ 1–1 of 3 · selected 1                      │ 
+ │ notes / main                               │ 
+ │ running · Policy current · unattended      │ 
+ │ Agents [A] · latest: unknown · no retaine… │ 
+ │ Project services [S]: 3 units observed     │ 
+ ╰────────────────────────────────────────────╯ 
+ j/k · PgUp/PgDn page · Enter open · gg/G ends  
+ s stop · c create · P project · / search       
+ D details · A reports · S services · ? help    
+ O operations · p policy · b branches           
+ R rename · d discard · X delete · q/Esc back   
+                                                
+                                                

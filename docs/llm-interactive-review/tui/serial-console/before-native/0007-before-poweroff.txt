@@ -1,0 +1,35 @@
+         Stopping Serial Getty on ttyS0...                                                                              
+         Stopping Load/Save OS Random Seed...                                                                           
+[  OK  ] Stopped Getty on tty1.                                                                                         
+[  OK  ] Stopped Serial Getty on ttyS0.                                                                                 
+[  OK  ] Stopped P fixed DNS-over-HTTPS resolver.                                                                       
+[  OK  ] Stopped P public lab daemon (confined Incus owner).                                                            
+[  OK  ] Stopped Incus Container and Virtual Machine Management User Daemon.                                            
+[  OK  ] Mounted /run/initramfs.                                                                                        
+[  OK  ] Stopped Post-Boot Actions.                                                                                     
+[  OK  ] Stopped Load/Save OS Random Seed.                                                                              
+[  OK  ] Stopped Session 5 of User pdev.                                                                                
+[  OK  ] Stopped Session 4 of User pdev.                                                                                
+[  OK  ] Removed slice Slice /system/getty.                                                                             
+[  OK  ] Removed slice Slice /system/serial-getty.                                                                      
+         Starting Generate shutdown ramfs...                                                                            
+[  OK  ] Stopped Prepare the confined Incus lab and pinned fixture image.                                               
+[  OK  ] Stopped Incus initialization with preseed file.                                                                
+         Stopping Permit User Sessions...                                                                               
+         Stopping User Manager for UID 1000...                                                                          
+[  OK  ] Stopped Permit User Sessions.                                                                                  
+[  OK  ] Stopped target Remote File Systems.                                                                            
+[  OK  ] Stopped User Manager for UID 1000.                                                                             
+         Stopping Userspace Out-Of-Memory (OOM) Killer...                                                               
+         Stopping User Runtime Directory /run/user/1000...                                                              
+[  OK  ] Stopped Userspace Out-Of-Memory (OOM) Killer.                                                                  
+[  OK  ] Unmounted /run/user/1000.                                                                                      
+[  OK  ] Finished Generate shutdown ramfs.                                                                              
+[  OK  ] Stopped User Runtime Directory /run/user/1000.                                                                 
+[  OK  ] Removed slice Slice /user/1000.                                                                                
+         Stopping User Login Management...                                                                              
+[  OK  ] Stopped User Login Management.                                                                                 
+[  OK  ] Stopped target User and Group Name Lookups.                                                                    
+         Stopping Name Service Cache Daemon (nsncd)...                                                                  
+[  OK  ] Stopped Name Service Cache Daemon (nsncd).                                                                     
+                                                                                                                        

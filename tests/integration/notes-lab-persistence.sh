@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# Run as the notes lab owner, once before and once after a clean VM relaunch.
+set -euo pipefail
+umask 077
+record="$HOME/.local/state/p-notes-lab-check.json"
+export INCUS_SOCKET=/var/lib/incus/unix.socket.user
+rpc() { timeout 150 p api "$@"; }
+inc() { timeout 60 incus --force-local --project user-1000 "$@"; }
+params() { jq -nc --arg uuid "$uuid" '{uuid:$uuid}'; }
+guest() {
+  inc exec --force-noninteractive --disable-stdin "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
+    --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh \
+    --env XDG_RUNTIME_DIR=/run/user/1000 \
+    --env DBUS_SESSION_BUS_ADDRESS=unix:path=/run/user/1000/bus -- "$@"
+}
+# An action returns once the session's service manager has queued it; the
+# inventory shows when it is done.
+action() {
+  rpc session.service.action "$(jq -nc --arg uuid "$uuid" --arg name "p-project-notes-$1.service" --arg action "$2" \
+    '{uuid:$uuid,name:$name,action:$action}')" >/dev/null
+}
+wait_unit() {
+  local deadline=$((SECONDS+60))
+  until rpc session.services "$(params)" | jq -e --arg name "p-project-notes-$1.service" --arg state "$2" \
+    '.result.services|any(.name==$name and .state==$state)' >/dev/null; do
+    test "$SECONDS" -lt "$deadline"; sleep .2
+  done
+}
+start_unit() { action "$1" start; wait_unit "$1" running; }
+stop_unit() { action "$1" stop; wait_unit "$1" stopped; }
+sql() { guest psql -h /home/p/.local/state/p-notes/socket -d notes -Atc "$1"; }
+wait_ready() {
+  local deadline=$((SECONDS+180))
+  until rpc session.inspect "$(params)" | jq -e '.result.session.session_condition=="ready"' >/dev/null; do
+    test "$SECONDS" -lt "$deadline"; sleep .2
+  done
+}
+# start_session: session.start; the operation it records, or finds
+# unfinished, completes. A session already ready records nothing.
+start_session() {
+  local response operation status=running deadline=$((SECONDS+180))
+  response=$(rpc session.start "$(params)")
+  if operation=$(jq -er '.result.operation.id' <<< "$response"); then
+    while test "$status" = running; do
+      test "$SECONDS" -lt "$deadline"
+      status=$(rpc operation.wait "$(jq -nc --arg id "$operation" '{id:$id,timeout:20}')" |
+        jq -er '.result.operation.status')
+    done
+    if test "$status" != completed; then echo "notes session start ended $status" >&2; return 1; fi
+  fi
+}
+setup() {
+  guest python3 examples/notes/install.py
+  start_unit db
+  start_unit web
+  start_unit worker
+  guest python3 examples/notes/client.py health
+}
+case "${1-}" in
+  prepare)
+    test ! -e "$record"
+    created=$(rpc project.create '{"key":"notes-lab-persistence","project":"notes-persistence"}')
+    uuid=$(jq -er '.result.operation.session_uuid' <<< "$created")
+    wait_ready
+    guest bash -euc 'mkdir -p examples/notes; cp -R /etc/p-notes-example/. examples/notes; chmod -R u+w examples/notes; git add examples/notes; git -c user.name=P -c user.email=p@example.invalid commit -qm notes; git push origin HEAD:main'
+    pushed=$(guest git rev-parse HEAD)
+    setup
+    guest python3 examples/notes/client.py add 'retained across full lab reboot'
+    deadline=$((SECONDS+30))
+    until test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 0; do test "$SECONDS" -lt "$deadline"; sleep .2; done
+    stop_unit worker
+    guest python3 examples/notes/client.py add 'queued across full lab reboot'
+    guest bash -euc 'printf persistent-private > /home/p/persistence-marker; printf local-commit > persistence-local; git add persistence-local; git -c user.name=P -c user.email=p@example.invalid commit -qm local-only; printf dirty-retained > persistence-dirty'
+    local_oid=$(guest git rev-parse HEAD)
+    mkdir -p "$(dirname "$record")"
+    jq -n --arg uuid "$uuid" --arg pushed "$pushed" --arg local_oid "$local_oid" \
+      --arg boot "$(cat /proc/sys/kernel/random/boot_id)" \
+      --arg principal "$(sha256sum "/var/lib/p-demo/session_keys/$uuid" | cut -d ' ' -f1)" \
+      '{uuid:$uuid,pushed:$pushed,local_oid:$local_oid,boot:$boot,principal:$principal}' > "$record"
+    printf 'P_NOTES_LAB_PREPARED uuid=%s record=%s\n' "$uuid" "$record"
+    ;;
+  check)
+    uuid=$(jq -er '.uuid' "$record")
+    test "$(cat /proc/sys/kernel/random/boot_id)" != "$(jq -er '.boot' "$record")"
+    rpc session.inspect "$(params)" > /tmp/p-notes-lab-inspect.json
+    condition=$(jq -er '.result.session.session_condition' /tmp/p-notes-lab-inspect.json)
+    if test "$condition" = stopped; then start_session; fi
+    wait_ready
+    test "$(guest git rev-parse HEAD)" = "$(jq -er '.local_oid' "$record")"
+    test "$(guest cat persistence-dirty)" = dirty-retained
+    test "$(guest cat /home/p/persistence-marker)" = persistent-private
+    test "$(sha256sum "/var/lib/p-demo/session_keys/$uuid" | cut -d ' ' -f1)" = "$(jq -er '.principal' "$record")"
+    for unit in db web worker; do
+      test "$(guest systemctl --user show "p-project-notes-$unit.service" -p MainPID --value)" = 0
+    done
+    start_unit db
+    test "$(sql 'SELECT count(*) FROM notes')" = 2
+    test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 1
+    rpc project.branches '{"project":"notes-persistence","limit":8}' \
+      | jq -e --arg oid "$(jq -er '.pushed' "$record")" '.result.refs|any(.ref=="refs/heads/main" and .oid==$oid)' >/dev/null
+    start_unit web
+    start_unit worker
+    deadline=$((SECONDS+30))
+    until test "$(sql 'SELECT count(*) FROM jobs WHERE completed_at IS NULL')" = 0; do test "$SECONDS" -lt "$deadline"; sleep .2; done
+    guest python3 examples/notes/client.py health
+    guest python3 examples/notes/client.py list
+    printf 'P_NOTES_LAB_RELAUNCH_PASS uuid=%s identities source private-files units SQL pending-job-recovery\n' "$uuid"
+    ;;
+  *) echo 'Usage: bash /etc/p-notes-persistence-check.sh prepare|check' >&2; exit 2 ;;
+esac

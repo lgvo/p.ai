@@ -1,0 +1,71 @@
+diff --git a/dnscrypt-proxy/xtransport.go b/dnscrypt-proxy/xtransport.go
+--- a/dnscrypt-proxy/xtransport.go
++++ b/dnscrypt-proxy/xtransport.go
+@@ -724,6 +724,9 @@
+ 	client := http.Client{
+ 		Transport: xTransport.transport,
+ 		Timeout:   timeout,
++		CheckRedirect: func(_ *http.Request, _ []*http.Request) error {
++			return http.ErrUseLastResponse
++		},
+ 	}
+ 	host, port := ExtractHostAndPort(url.Host, 443)
+ 	hasAltSupport := false
+diff --git a/dnscrypt-proxy/p_no_redirect_test.go b/dnscrypt-proxy/p_no_redirect_test.go
+new file mode 100644
+--- /dev/null
++++ b/dnscrypt-proxy/p_no_redirect_test.go
+@@ -0,0 +1,53 @@
++package main
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"sync/atomic"
++	"testing"
++	"time"
++)
++
++func TestPDoHRefusesHTTPRedirects(t *testing.T) {
++	for _, code := range []int{301, 302, 303, 307, 308} {
++		t.Run(http.StatusText(code), func(t *testing.T) {
++			var redirected atomic.Int32
++			target := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
++				redirected.Add(1)
++				w.Write([]byte("unexpected destination"))
++			}))
++			defer target.Close()
++			var admitted atomic.Int32
++			var ordinary atomic.Bool
++			source := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++				admitted.Add(1)
++				if ordinary.Load() {
++					w.Write([]byte("response"))
++					return
++				}
++				http.Redirect(w, r, target.URL+"/dns-query", code)
++			}))
++			defer source.Close()
++			x := NewXTransport()
++			// Trust only the fixture TLS certificate. The actual Fetch client
++			// must refuse the redirect before dialing any second destination.
++			x.transport = source.Client().Transport.(*http.Transport)
++			u, err := url.Parse(source.URL + "/dns-query")
++			if err != nil {
++				t.Fatal(err)
++			}
++			body := []byte{0, 1, 2}
++			_, status, _, _, err := x.Fetch("POST", u, "application/dns-message", "application/dns-message", &body, time.Second, false)
++			if err == nil || status != code || admitted.Load() != 1 || redirected.Load() != 0 {
++				t.Fatalf("redirect was not refused: status=%d err=%v admitted=%d redirected=%d", status, err, admitted.Load(), redirected.Load())
++			}
++			// A normal TLS request through the same Fetch path remains usable.
++			ordinary.Store(true)
++			data, status, _, _, err := x.Fetch("POST", u, "application/dns-message", "application/dns-message", &body, time.Second, false)
++			if err != nil || status != 200 || string(data) != "response" {
++				t.Fatalf("ordinary HTTPS failed: status=%d err=%v", status, err)
++			}
++		})
++	}
++}

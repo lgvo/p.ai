@@ -1,0 +1,45 @@
+{
+  "date": "2026-11-03",
+  "base_revision": "e028aed",
+  "state": "M6 cherry-picked onto e028aed (rework-lane-b, after main's change-tag plans), uncommitted: removal plans carry the runtime driver's name and incarnation instead of the Incus project, instance name, UUID and generation",
+  "setup": "before: p and tui-mock built from git archive of base_revision; after: p and tui-mock built from an export of the changed working tree. Each run: a fresh small-dataset fixture and production p tui --theme dark under tests/integration/tui-observe.py, starting at 120x35",
+  "dimensions": [
+    [
+      120,
+      35
+    ],
+    [
+      80,
+      24
+    ],
+    [
+      48,
+      16
+    ]
+  ],
+  "intended_experience": "The removal review identifies the runtime it deletes and states the loss by category, as reviewed in removal-without-inspection and removal-plans. The prototype has no removal review; its vocabulary uses runtime for session state (as the production details panel does: 'Runtime: running'). M6 changes only the identity line: 'Container: <name> in Incus project <project> \u00b7 <status>' becomes 'Runtime: <name> \u00b7 <status>', and a missing runtime's 'Container: <name> is missing from Incus project <project>.' becomes 'Runtime: missing', naming no runtime backend.",
+  "navigated": "forge / feat/device-login, running: d (Discard review), n; X (Delete review), n; s, y (Stop), Esc; then stopped: d, n; X, n. The same actions on both builds, at 120x35 except where noted. After build only: resize the open Discard review to 80x24 and 48x16, PgDn twice at 48x16, resize back to 120x35, Esc; X at 80x24, q; Delete review of the stopped session resized to 48x16, n; d, y (authorize Discard) and Esc.",
+  "review_result": "passed: at 120x35 the Discard and Delete reviews of the running session and of the stopped session differ between the builds only in the identity line and the review expiry time. 'Runtime: p-<uuid> \u00b7 Running' reads on into 'P stops the running container before deleting it.' and matches the details panel's 'Runtime:' label. At 80x24 the line fits; at 48x16 the name wraps at a hyphen like the UUID line, and PgDn reaches the branch outcome. Resizing keeps the review open; n, q and Esc cancel to the picker; authorizing completes session.discard in the mock. No defect found; no product code changed by the review.",
+  "not_reviewed": "the missing-runtime line 'Runtime: missing': the mock fixture cannot make a session's runtime missing, so only the component test TestRemovalReviewOfAMissingRuntimeStatesWhatIsGone covers it",
+  "tests": {
+    "tui_gate": "just tui-tests passed: 8 terminal, 9 observer, 12 mock cases (29), including test_05 removal preview Discard/Delete running and error",
+    "component": "go test ./internal/tui/ ./tests/integration/cmd/tui-mock/ passed, including TestRemovalReviewStatesRuntimeLossByCategory asserting 'Runtime: p-stopped \u00b7 Stopped' and no 'Incus', and TestRemovalReviewOfAMissingRuntimeStatesWhatIsGone asserting 'Runtime: missing'"
+  },
+  "boundary": "mock socket only: the plan values are the fixture's (name p-<uuid>, incarnation <uuid>/1); the daemon's plan from the Incus driver is checked by VM scenarios 30, 31, 34, 51 and 52, which the coordinator runs",
+  "raw_capture_destination": "session scratchpad (not retained)",
+  "sha256": {
+    "before p": "58ad99346adfa88b39c71725dbbdc6f26af39d8b734df260695d050e64859b31",
+    "before tui-mock server": "9def1a2a33bb09e796e3076137cc9eafe6efb779924fdedd5f9c0ffa20b0b027",
+    "after p": "872a07c4e1838586f70f790eb6b561846db0cd6a8a4c6dc7caa593a8ccd0af06",
+    "after tui-mock server": "a667d5038e6270cdf1da1aaba14c48cdc36baafd9674fea6e0b0719997f9f1e2"
+  },
+  "artifacts": {
+    "actions.ndjson": "a479ec1c7e60a3280708d4b5a70034bca54632fd0c217dfa1df98d688c48c4c5",
+    "after-0002-discard-running-120x35.png": "5886c60ec18dd3463502e88bdccc845dce6d0669694461f2d8f5c25387fd45ed",
+    "after-0004-discard-running-48x16.png": "b28ff955535c0e9665ead3edbbac6364684d2c20e936badf7223e06e7a687b9a",
+    "after-0010-delete-running-80x24.png": "f45e1a3a347ec1cfc6966cd0448b2a81c094bd39b51528c6021a87cef386b4ab",
+    "after-0018-delete-stopped-120x35.png": "9fe532ce1b99c4e690e6f0768ec0478cdc31cc3a6912d01021b76516131da4fc",
+    "before-0002-discard-running-120x35.png": "bef51221721a68a671254376ae432005a9ed916ed461455395cc0b4fb9f68640",
+    "before-0011-delete-stopped-120x35.png": "1e8481ec7da80ea6a49bae437e5cc442c1c94a00a6649f74741b8947e064b7c2"
+  }
+}

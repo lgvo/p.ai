@@ -1,0 +1,41 @@
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1790878145.802583, "bytes": 7755, "run": "prototype"}
+{"op": "send", "label": "create-project", "wait": 0.2, "text": "c", "hex": null, "frame": "0002-create-project", "timestamp": 1790878174.9892154, "bytes": 13549, "run": "prototype"}
+{"op": "send", "label": "branches", "wait": 0.2, "text": null, "hex": "0d", "frame": "0003-branches", "timestamp": 1790878195.3909266, "bytes": 18721, "run": "prototype"}
+{"op": "send", "label": "policy", "wait": 0.2, "text": null, "hex": "0d", "frame": "0004-policy", "timestamp": 1790878208.7949924, "bytes": 22994, "run": "prototype"}
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1790878116.0717213, "bytes": 0, "run": "before"}
+{"op": "observe", "label": "browser", "wait": 0.2, "frame": "0002-browser", "timestamp": 1790878145.0482552, "bytes": 9495, "run": "before"}
+{"op": "send", "label": "create-project", "wait": 0.2, "text": "c", "hex": null, "frame": "0003-create-project", "timestamp": 1790878172.138695, "bytes": 15898, "run": "before"}
+{"op": "send", "label": "existing-project", "wait": 0.2, "text": "j", "hex": null, "frame": "0004-existing-project", "timestamp": 1790878189.6547792, "bytes": 16035, "run": "before"}
+{"op": "send", "label": "branches", "wait": 0.2, "text": null, "hex": "0d", "frame": "0005-branches", "timestamp": 1790878205.7447653, "bytes": 16385, "run": "before"}
+{"op": "send", "label": "retained-selected", "wait": 0.2, "text": "j", "hex": null, "frame": "0006-retained-selected", "timestamp": 1790878219.650038, "bytes": 16518, "run": "before"}
+{"op": "send", "label": "final-confirmation", "wait": 0.2, "text": null, "hex": "0d", "frame": "0007-final-confirmation", "timestamp": 1790878232.2320685, "bytes": 17300, "run": "before"}
+{"op": "send", "label": "enter-declines", "wait": 0.2, "text": null, "hex": "0d", "frame": "0008-enter-declines", "timestamp": 1790878243.9294665, "bytes": 20012, "run": "before"}
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1790878394.9190693, "bytes": 0, "run": "after"}
+{"op": "send", "label": "project-picker", "wait": 0.2, "text": "c", "hex": null, "frame": "0002-project-picker", "timestamp": 1790878411.05779, "bytes": 10501, "run": "after"}
+{"op": "send", "label": "project-name", "wait": 0.2, "text": null, "hex": "0d", "frame": "0003-project-name", "timestamp": 1790878420.997656, "bytes": 10765, "run": "after"}
+{"op": "send", "label": "project-origin", "wait": 0.2, "text": "enter-review\r", "hex": null, "frame": "0004-project-origin", "timestamp": 1790878433.9127798, "bytes": 10836, "run": "after"}
+{"op": "send", "label": "local-project-review-120", "wait": 0.2, "text": null, "hex": "0d", "frame": "0005-local-project-review-120", "timestamp": 1790878450.3248866, "bytes": 11594, "run": "after"}
+{"op": "resize", "label": "local-project-review-80", "wait": 0.2, "cols": 80, "rows": 24, "frame": "0006-local-project-review-80", "timestamp": 1790878472.2835445, "bytes": 12340, "run": "after"}
+{"op": "resize", "label": "local-project-review-48", "wait": 0.2, "cols": 48, "rows": 16, "frame": "0007-local-project-review-48", "timestamp": 1790878481.7240682, "bytes": 12893, "run": "after"}
+{"op": "send", "label": "local-project-review-bottom-48", "wait": 0.2, "text": "G", "hex": null, "frame": "0008-local-project-review-bottom-48", "timestamp": 1790878493.5119398, "bytes": 13255, "run": "after"}
+{"op": "send", "label": "project-back-editor", "wait": 0.2, "text": "q", "hex": null, "frame": "0009-project-back-editor", "timestamp": 1790878505.773675, "bytes": 13511, "run": "after"}
+{"op": "resize", "label": "editor-resize", "wait": 0.2, "cols": 120, "rows": 35, "frame": "0010-editor-resize", "timestamp": 1790878523.7995028, "bytes": 13782, "run": "after"}
+{"op": "send", "label": "project-review-return", "wait": 0.2, "text": null, "hex": "0d", "frame": "0011-project-review-return", "timestamp": 1790878534.4298728, "bytes": 14540, "run": "after"}
+{"op": "send", "label": "project-enter-dispatch", "wait": 0.02, "text": null, "hex": "0d", "frame": "0012-project-enter-dispatch", "timestamp": 1790878544.7947147, "bytes": 16558, "run": "after"}
+{"op": "observe", "label": "project-attached", "wait": 0.2, "frame": "0013-project-attached", "timestamp": 1790878557.7142437, "bytes": 16672, "run": "after"}
+{"op": "send", "label": "project-detached", "wait": 0.2, "text": null, "hex": "0264", "frame": "0014-project-detached", "timestamp": 1790878570.2921062, "bytes": 23338, "run": "after"}
+{"op": "send", "label": "stop-still-default-no", "wait": 0.2, "text": "s", "hex": null, "frame": "0015-stop-still-default-no", "timestamp": 1790878582.1905048, "bytes": 24628, "run": "after"}
+{"op": "send", "label": "stop-enter-declines", "wait": 0.2, "text": null, "hex": "0d", "frame": "0016-stop-enter-declines", "timestamp": 1790878591.1842892, "bytes": 31071, "run": "after"}
+{"op": "send", "label": "retained-project-picker", "wait": 0.2, "text": "c", "hex": null, "frame": "0017-retained-project-picker", "timestamp": 1790878601.6144443, "bytes": 34992, "run": "after"}
+{"op": "send", "label": "retained-branches", "wait": 0.2, "text": "jj\r", "hex": null, "frame": "0018-retained-branches", "timestamp": 1790878620.3814282, "bytes": 35322, "run": "after"}
+{"op": "send", "label": "retained-review", "wait": 0.2, "text": "j\r", "hex": null, "frame": "0019-retained-review", "timestamp": 1790878630.9337075, "bytes": 36050, "run": "after"}
+{"op": "send", "label": "retained-enter", "wait": 0.2, "text": null, "hex": "0d", "frame": "0020-retained-enter", "timestamp": 1790878643.9841673, "bytes": 37807, "run": "after"}
+{"op": "send", "label": "retained-detach", "wait": 0.2, "text": null, "hex": "0264", "frame": "0021-retained-detach", "timestamp": 1790878653.5151615, "bytes": 44659, "run": "after"}
+{"op": "send", "label": "new-branch-project-picker", "wait": 0.2, "text": "c", "hex": null, "frame": "0022-new-branch-project-picker", "timestamp": 1790878666.202794, "bytes": 48791, "run": "after"}
+{"op": "send", "label": "new-branch-options", "wait": 0.2, "text": "jj\r", "hex": null, "frame": "0023-new-branch-options", "timestamp": 1790878683.207672, "bytes": 49081, "run": "after"}
+{"op": "send", "label": "source-options", "wait": 0.2, "text": null, "hex": "0d", "frame": "0024-source-options", "timestamp": 1790878692.9847183, "bytes": 49629, "run": "after"}
+{"op": "send", "label": "origin-branch-name", "wait": 0.2, "text": "G\r", "hex": null, "frame": "0025-origin-branch-name", "timestamp": 1790878703.5674005, "bytes": 49896, "run": "after"}
+{"op": "send", "label": "origin-source-review", "wait": 0.2, "text": "feat/enter-origin\r", "hex": null, "frame": "0026-origin-source-review", "timestamp": 1790878718.0344174, "bytes": 50667, "run": "after"}
+{"op": "send", "label": "origin-back-name", "wait": 0.2, "text": "q", "hex": null, "frame": "0027-origin-back-name", "timestamp": 1790878733.8328805, "bytes": 50933, "run": "after"}
+{"op": "send", "label": "origin-review-return", "wait": 0.2, "text": null, "hex": "0d", "frame": "0028-origin-review-return", "timestamp": 1790878747.0313253, "bytes": 51707, "run": "after"}
+{"op": "send", "label": "origin-enter-attached", "wait": 0.2, "text": null, "hex": "0d", "frame": "0029-origin-enter-attached", "timestamp": 1790878763.7491257, "bytes": 53917, "run": "after"}

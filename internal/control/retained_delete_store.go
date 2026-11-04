@@ -1,0 +1,235 @@
+package control
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
+)
+
+// RetainedDeleteRequest is a retained branch's deletion run as its operation
+// records it: the branch, the run's idempotency key and its change tag.
+type RetainedDeleteRequest struct {
+	Key     string `json:"key"`
+	Project string `json:"project"`
+	Branch  string `json:"branch"`
+	IfMatch string `json:"if_match"`
+}
+
+// RetainedDeleteEvidence is what the deletion's worker checks again before
+// it deletes the branch: its tip and a digest of the commits that leave P.
+type RetainedDeleteEvidence struct {
+	Project      string `json:"project"`
+	Branch       string `json:"branch"`
+	Tip          string `json:"tip"`
+	ReviewSHA256 string `json:"review_sha256"`
+	InstanceUUID string `json:"instance_uuid"`
+}
+
+func validRetainedDeleteRequest(r RetainedDeleteRequest) bool {
+	return len(r.Key) > 0 && len(r.Key) <= 128 && validProject(r.Project) && validBranch(r.Branch) && api.ValidChangeTag(r.IfMatch)
+}
+func validRetainedDeleteEvidence(e RetainedDeleteEvidence) bool {
+	return validProject(e.Project) && validBranch(e.Branch) && validOID(e.Tip) && validFingerprint(e.ReviewSHA256) && validUUID(e.InstanceUUID)
+}
+
+// BeginRetainedDelete reserves the one unassigned ref of run r, whose plan
+// has change hash hash, only after verify planned it again under
+// gitAuthority. The callback must not re-enter Store locks.
+func (s *Store) BeginRetainedDelete(ctx context.Context, r RetainedDeleteRequest, e RetainedDeleteEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	if !validRetainedDeleteRequest(r) || !validRetainedDeleteEvidence(e) || r.Project != e.Project || r.Branch != e.Branch || !validFingerprint(hash) || verify == nil {
+		return api.Operation{}, ErrInvalid
+	}
+	expires, _ := api.ParseChangeTag(r.IfMatch)
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	defer s.gitAuthority.Unlock()
+	raw, _ := json.Marshal(r)
+	if replay, err := keyRecordsRequest(ctx, s.db, r.Key, KindRetainedDelete, raw); err != nil {
+		return api.Operation{}, err
+	} else if replay {
+		return s.GetOperationByKey(ctx, r.Key)
+	}
+	if !time.Now().Before(expires) {
+		return api.Operation{}, Stale(api.ReasonExpired)
+	}
+	if err := verify(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	var row int
+	err = tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=? AND registry_state='active'`, r.Project).Scan(&row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return api.Operation{}, NotFound(api.ReasonProject, api.TargetProject(r.Project))
+	}
+	if err != nil {
+		return api.Operation{}, err
+	}
+	err = tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=?`, r.Project, r.Branch).Scan(&row)
+	if err == nil {
+		return api.Operation{}, Conflict(api.ReasonBranchAssigned, api.TargetBranch(r.Project, r.Branch))
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return api.Operation{}, err
+	}
+	if !time.Now().Before(expires) {
+		return api.Operation{}, Stale(api.ReasonExpired)
+	}
+	id, err := newUUID()
+	if err != nil {
+		return api.Operation{}, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	evRaw, _ := json.Marshal(e)
+	rec := operationRecord{ID: id, Key: r.Key, Kind: KindRetainedDelete, Project: r.Project, Request: raw,
+		Intent: api.OperationIntent{Project: r.Project, Branch: r.Branch}, Phase: "guarded", Evidence: evRaw, ChangeHash: hash, Now: now}
+	err = j.insert(ctx, rec)
+	if err != nil {
+		return api.Operation{}, classifyWrite(err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, r.Project, r.Branch, id); err != nil {
+		return api.Operation{}, withTarget(classifyWrite(err), api.TargetBranch(r.Project, r.Branch))
+	}
+	if err = j.commit(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	return rec.operation(), nil
+}
+
+// IssueRetainedDelete holds the ref authority lock through final review, the
+// durable effect marker, and the one selected Git CAS. A failed verification
+// is definitely pre-effect; an effect error leaves a guarded issued intent.
+func (s *Store) IssueRetainedDelete(ctx context.Context, id string, verify func(context.Context, RetainedDeleteEvidence) error, effect func() error) error {
+	if verify == nil || effect == nil {
+		return ErrInvalid
+	}
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return err
+	}
+	defer s.gitAuthority.Unlock()
+	op, err := s.GetOperation(ctx, id)
+	if err != nil {
+		return err
+	}
+	var e RetainedDeleteEvidence
+	if op.Kind != "project.retained.delete" || op.Status != "running" || op.Phase != "guarded" || op.Committed || json.Unmarshal(op.Evidence, &e) != nil || !validRetainedDeleteEvidence(e) || op.Project != e.Project {
+		return ErrConflict
+	}
+	if err = verify(ctx, e); err != nil {
+		return err
+	}
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	if err = s.retainedDeleteGuard(ctx, tx, id, e); err != nil {
+		return err
+	}
+	_, err = j.update(ctx, id, `UPDATE operations SET phase='ref-delete-issued',committed=1,updated_at=? WHERE id=? AND status='running' AND phase='guarded'`, time.Now().UTC().Format(time.RFC3339Nano), id)
+	if err != nil {
+		return err
+	}
+	if err = j.commit(ctx); err != nil {
+		return err
+	}
+	return effect()
+}
+
+func (s *Store) retainedDeleteGuard(ctx context.Context, tx *sql.Tx, id string, e RetainedDeleteEvidence) error {
+	var owner string
+	if err := tx.QueryRowContext(ctx, `SELECT operation_id FROM git_ref_guards WHERE project_path=? AND branch=?`, e.Project, e.Branch).Scan(&owner); err != nil || owner != id {
+		return ErrConflict
+	}
+	var row int
+	err := tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE project_path=? AND branch=?`, e.Project, e.Branch).Scan(&row)
+	if err == nil {
+		return ErrConflict
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	err = tx.QueryRowContext(ctx, `SELECT 1 FROM projects WHERE path=? AND registry_state='active'`, e.Project).Scan(&row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ErrConflict
+	}
+	return err
+}
+
+func (s *Store) FailRetainedDeleteStale(ctx context.Context, id string) error {
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return err
+	}
+	defer s.gitAuthority.Unlock()
+	op, err := s.GetOperation(ctx, id)
+	if err != nil {
+		return err
+	}
+	var e RetainedDeleteEvidence
+	if op.Kind != "project.retained.delete" || op.Status != "running" || op.Phase != "guarded" || op.Committed || json.Unmarshal(op.Evidence, &e) != nil {
+		return ErrConflict
+	}
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	if err = s.retainedDeleteGuard(ctx, tx, id, e); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE project_path=? AND branch=? AND operation_id=?`, e.Project, e.Branch, id); err != nil {
+		return err
+	}
+	if _, err = j.update(ctx, id, `UPDATE operations SET status='failed',phase='stale',reason='changed',diagnostic='retained branch delete review changed',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		return err
+	}
+	return j.commit(ctx)
+}
+
+func (s *Store) CompleteRetainedDelete(ctx context.Context, id string, verify func(context.Context, RetainedDeleteEvidence) error) error {
+	if verify == nil {
+		return ErrInvalid
+	}
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return err
+	}
+	defer s.gitAuthority.Unlock()
+	op, err := s.GetOperation(ctx, id)
+	if err != nil {
+		return err
+	}
+	var e RetainedDeleteEvidence
+	if op.Kind != "project.retained.delete" || op.Status != "running" || op.Phase != "ref-delete-issued" || !op.Committed || json.Unmarshal(op.Evidence, &e) != nil {
+		return ErrConflict
+	}
+	if err = verify(ctx, e); err != nil {
+		return err
+	}
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	if err = s.retainedDeleteGuard(ctx, tx, id, e); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE project_path=? AND branch=? AND operation_id=?`, e.Project, e.Branch, id); err != nil {
+		return err
+	}
+	if _, err = j.update(ctx, id, `UPDATE operations SET status='completed',phase='completed',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		return err
+	}
+	return j.commit(ctx)
+}

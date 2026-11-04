@@ -1,0 +1,24 @@
+P · Sessions · waiting → running → other                                        
+╭────────────────────────────────────────────────────────────────────────────╮  
+│ All project sessions                                                       │  
+│ 1–3 of 120 · selected 2                                                    │  
+│   forge                    └─ feat/device-login         running !waiting   │  
+│ › orbit                    └─ fix/cache-race            running !waiting   │  
+│   forge                    ├─ fix/token-refresh         running            │  
+╰────────────────────────────────────────────────────────────────────────────╯  
+j/k move · Enter session · s stop · c create · b branches · p policy · X delete 
+P project · A agents · S services · / search · ? help · q | Esc | Ctrl-C        
+back/quit                                                                       
+PgUp/PgDn · ^B/^F page · ^U/^D half · gg/G ends                                 
+╭────────────────────────────────────────────────────────────────────────────╮  
+│ Session details                                                            │  
+│ orbit / fix/cache-race                                                     │  
+│ UUID 463637f7-f5a4-4e78-bfbb-24c1e4f71b04                                  │  
+│ Runtime running · Policy current · Terminals unattended                    │  
+│ ├─ Agents [A] · Codex [cache race] · waiting                               │  
+│ └─ Project services [S] · worker.service · active (running)                │  
+╰────────────────────────────────────────────────────────────────────────────╯  
+                                                                                
+                                                                                
+                                                                                
+                                                                                

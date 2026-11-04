@@ -1,0 +1,16 @@
+Session details                                 
+Project: notes                                  
+Branch: main                                    
+UUID: 518a9a25-561d-4c57-900d-cb101ffda071      
+Runtime: running                                
+Policy: current                                 
+Terminals: unattended (0 attached)              
+                                                
+Agents [A] · latest unattended report           
+j/k/Pg scroll · A reports · S services          
+p policy · q/Esc back                           
+                                                
+                                                
+                                                
+                                                
+                                                

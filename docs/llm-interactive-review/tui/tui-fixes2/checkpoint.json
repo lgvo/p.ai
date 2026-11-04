@@ -1,0 +1,61 @@
+{
+  "date": "2026-11-03",
+  "head": "2b14a2b",
+  "working_tree": "2b14a2b (lane C, branch rework-lane-c) plus the uncommitted fixes; final_files_sha256 names the reviewed files",
+  "scope": "Production p tui against the disposable mock socket only: the fixture server (tests/integration/cmd/tui-mock, --dataset small) and p tui SOCKET --theme dark were started directly with a known socket and driven through tests/integration/tui-observe.py with dev/tui-test-shell.nix's Python. mock.configure slowed or failed one call at a time (recorded in actions.ndjson before the action it affects). The four observations the tui-fixes review left open (T1-T4) and the debt 'The TUI writes its own loss sentences', at the sizes they name. No Incus, Git, systemd or real-daemon claim",
+  "prototype": "run 'proto': the prototype's selected browser (--dataset standard). At 48x16 its Help is longer than the frame and ends with a muted '… frame clipped; enlarge terminal to inspect re…' row (proto-0003; view.go fitLines), and its lists end '… N more objects'; Enter on a stopped session shows 'STARTING SESSION (orbit / fix/cache-race)' at 120x35 (proto-0012; its 48x16 boot page is tui-fixes proto-0024). The prototype has no operations page, no STALE line and no removal review",
+  "before": "exports of 2b14a2b: run 'before' (unchanged fixture), 'beforeD' (fixture changed in the export only, as in 'afterD'), 'before2' (Create)",
+  "runs": {
+    "before": "O, Enter on the blocked operation at 120x35, 48x16, j, G; r to completed at 48x16, 120x35, 80x24; s, y on forge/fix/token-refresh (Stop page); Enter with session.start slowed 4 s (120x35), entry, detach; s, y, Enter at 48x16 with session.inspect slowed 4 s (the read before entry), entry, detach; session.list failed internal at 120x35 and the next refresh; d on forge/fix/token-refresh at 120x35 and 48x16, n",
+    "beforeD": "fixture changed in the export only: orbit/feat/job-retries's runtime missing and forge/fix/token-refresh's tip 2222… held by no other branch. X on forge/fix/token-refresh at 120x35 and 80x24, n; d on orbit/feat/job-retries at 120x35 and 48x16, n. 'p session delete --dry-run forge:fix/token-refresh' and 'p session discard --dry-run orbit:feat/job-retries' against the same fixture (see cli)",
+    "before2": "D on forge/feat/device-login, Back, c, forge, retained/00, Enter with session.inspect slowed 4 s: the read before entry after a Create, then entry",
+    "after": "the 'before' path on the fix, plus the refresh failure and recovery at 48x16, Help and Details at 48x16 (the cue on other text pages), and d at 120x35 and 48x16 scrolled to the end",
+    "afterD": "the 'beforeD' path on the fix (fixture changed in the export only), the Delete review's loss items at 48x16, and y on the missing runtime's Discard to completion",
+    "after2": "the 'before2' path on the fix",
+    "mid": "the fix as built before review round 1 (the 'after' binaries), fresh mock at 48x16: ?, Page Down. It skipped the line 'attachment' that the cue had taken (mid-0003), review round 1's finding 1",
+    "after3": "final tree, fresh mock at 48x16: ?, Page Down twice, Page Up twice. The second screen starts at 'attachment' (after3-0003) and Page Up returns to it (after3-0005)"
+  },
+  "sizes": [
+    "120x35",
+    "80x24",
+    "48x16"
+  ],
+  "findings": {
+    "T1": "fixed: a text page (operation, readiness, Details, Help, policy, Agents) longer than its rows ends each screen but the last with a muted '… N more lines below' in its last row, as the prototype ends a clipped frame. The blocked operation at 48x16 ends its first screen '… 4 more lines below' (after-0004), then 3 after j (after-0005), and the last screen shows 'Retry resumes exact captured intent; changed / inputs need a new request.' with no cue (after-0007); before, the first screen ended at 'Leaving this screen does not cancel an' with nothing below it but the controls (before-0004). Help ends '… 20 more lines below' and Details '… 8 more lines below' at 48x16 (after-0093, after-0096). Page Down and Page Up (and Ctrl+F/B) move an inspection page by the lines a screen shows above its cue, one less than its rows, so paging skips no line (after3-0003, after3-0005; the fix as first built skipped 'attachment', mid-0003). The text is still wrapped at 44 columns: wrapping at 48 would leave the blocked page 14 lines for 12 rows",
+    "T2": "fixed: while Enter's session.start, or the session read before entry, is in flight, a session last read stopped reads 'Condition: starting' (after-0018 at 120x35 with the start slowed; after-0043 at 48x16 with the read slowed, mock.inspect showing session.start then session.inspect); before, 'Condition: stopped' (before-0017, before-0026). Once the read answers, the page shows the condition read (by component test)",
+    "T3": "fixed: an operation's page without a reason or diagnostic draws one blank row between Session and its note (after-0009 at 48x16, after-0010 at 120x35, after-0011 at 80x24; before-0009 drew three). The Stop page and the readiness page had the same empty detail and draw one too (after-0016, after-0018; before-0015 drew two, before-0017 three); a blocked operation's reason and Diagnostic still sit between two blank rows (after-0004)",
+    "T4": "fixed: the refresh that succeeds after a failed one clears STALE and the failure's sentence 'P failed unexpectedly; the daemon's log has the cause.' (after-0062 failed, after-0073 recovered at 120x35; after-0078, after-0092 at 48x16); before, the sentence stayed under the recovered browser (before-0037, before-0038). A notice written after the failure stays, an action's error with the same sentence too (by component test)",
+    "D1": "fixed (debt 'The TUI writes its own loss sentences'): the removal review states each loss and gone item with errtext.Loss and errtext.Gone, the sentences p session discard/delete print, in the TUI's layout ('- ' items wrapped under their text, the p_commits item followed by ':' and the commits that leave P). Delete at 120x35: '- the container of session 8d918a13-… and everything in it: uncommitted changes, files outside Git, commits not pushed to P; P does not look inside' and '- 1 commit on branch fix/token-refresh will be removed from P's repository; P does not check whether the origin has them:' over 2222… (afterD-0003, afterD-0004 at 80x24, afterD-0017 at 48x16); before, '- The container and everything in it: …, the home directory and runtime-local credentials. P does not look inside the container to list them.' and '- 1 commit on branch fix/token-refresh leaves P's repository; …' (beforeD-0003, beforeD-0004). A missing runtime: '- the runtime of session 4925111b-… is already missing; whatever it held is gone' (afterD-0022, afterD-0024; before '- The runtime is already missing; whatever it held is gone.', beforeD-0008), and y completed the Discard (afterD-0026). Discard of a running session: after-0099, after-0101; before-0040, before-0041. The review no longer names the home directory and runtime-local credentials, which errtext's sentence covers as 'everything in it'; an uncertain item reads 'possibly: …' and an unknown kind 'KIND at TARGET' as the CLI's do (by component test). At 48x16 the UUID in the sentence breaks at a hyphen, as the Container line's does"
+  },
+  "findings_open": 0,
+  "observations_open": {
+    "T5": "low, pre-existing, seen while checking T2: after a Create, the read before entry shows the readiness page of the session last opened (here forge / feat/device-login, 'Condition: ready') beside the new session's UUID, until entry (before2-0009, after2-0009 identical). followOperation sets only contextSession.UUID. Recommendation: name the created session from the operation (its project and intent branch; the mock records no intent) and read it as starting, or keep the creation's operation page until entry",
+    "T6": "low, pre-existing: the removal, confirmation and creation reviews scroll by their own code and still fold without a cue; at 48x16 the Discard review's first screen ends at 'P stops the running container before', above its loss items (before-0041 and after-0100 alike; its prompt line says 'review all losses'). Recommendation: the same last-row cue, through the review pages' own slicing"
+  },
+  "cli": {
+    "delete forge:fix/token-refresh --dry-run": [
+      "!!  - the container of session 8d918a13-7295-567d-9f78-1364b336d147",
+      "!!    and everything in it: uncommitted changes, files outside Git,",
+      "!!    commits not pushed to P; P does not look inside",
+      "!!  - 1 commit on branch fix/token-refresh will be removed from P's",
+      "!!    repository; P does not check whether the origin has them"
+    ],
+    "discard orbit:feat/job-retries --dry-run": [
+      "Already gone, whatever happens:",
+      "  - the runtime of session 4925111b-f5bf-5870-ae07-d39b43bdb940 is already missing; whatever it held is gone"
+    ]
+  },
+  "not_reached": "The mock's start completes at once, so the Start page of a running start operation was not rendered here (it reads 'starting' from the operation, unchanged); the mock records no operation intent",
+  "component_tests": "go test ./internal/tui ./internal/errtext ./tests/integration/cmd/tui-mock: ok. New: TestLongTextPageSaysHowManyLinesAreBelow, TestPagingALongTextPageShowsEveryLine, TestEnteringAStoppedSessionReadsStarting, TestProgressPageDrawsOneBlankRowWithoutADetail, TestRecoveredRefreshClearsItsFailureSentence, TestRemovalReviewSaysWhatTheCLISays; each failed on 2b14a2b's code and passes on the fix; TestPagingALongTextPageShowsEveryLine and the same-sentence case of TestRecoveredRefreshClearsItsFailureSentence also failed on the fix as first built. TestRemovalReviewStatesRuntimeLossByCategory, TestRemovalReviewCountsTheCommitsThatLeaveP and TestRemovalReviewKeepsEachLossItemTogetherWhenItWraps now expect errtext's wording",
+  "tui_tests": "just tui-tests: 8 terminal, 9 observer and 12 mock tests OK. The mock driver now also checks that the refresh that succeeds after a failed one clears 'failed unexpectedly' with STALE (test_01), and that the review states 'the container of session UUID and everything in it' and 'P does not look inside' (test_05); both fail on 2b14a2b",
+  "vm": "Through vmslot.sh, from exports of the working tree: ./dev/test-vm --step 56-live-tui.sh --step 58-notes-tui.sh passed (P_LIVE_TUI_PASS, P_NOTES_TUI_PASS) on the tree before review round 1 and again on the final tree. Only these two were run: the change is internal/tui, the mock driver tests/integration/tui-mock-test.py (run only by just tui-tests) and documents",
+  "review": "Two normal rounds by Codex (gpt-6.1-sol, high effort; a different provider from the driving agent). Round 1: Page Down and Page Up moved by the full rows although the cue takes one, skipping a line ('attachment' in Help at 48x16, mid-0003); and a recovered refresh erased an action's error that had the same sentence. Both fixed with tests that failed first (TestPagingALongTextPageShowsEveryLine; a new case of TestRecoveredRefreshClearsItsFailureSentence). Round 2: this checkpoint's hashes and the paging evidence were out of date; updated. Settled",
+  "final_files_sha256": {
+    "internal/tui/model.go": "459dc3395936ad20c83c9c07e173ead6b3ad9b4b36f8fc870aaf133a87a47612",
+    "internal/tui/view.go": "67132bdc2fb0b72a5785a593526a454c837fa8039411bab72fe8891561f9acd1",
+    "internal/tui/workflows.go": "728ec8f87e84e8b31657477c4be3161117892af2a827f264f5feacf2388ba0a6",
+    "internal/tui/model_test.go": "cabeef004aaa8260a8329c6d32b98c66eb3a84d00c6aa5dd7933dd442520a2ba",
+    "internal/tui/removal_test.go": "051824cef94b61cee4ee20c9c5f4aae881b87284cad9d97853f1b6d370b5665f",
+    "tests/integration/tui-mock-test.py": "4de2682731cf3f14927cc3ea761d0ab4d50ae65f8ffa48ccbbbad72bfe4bbd28"
+  }
+}

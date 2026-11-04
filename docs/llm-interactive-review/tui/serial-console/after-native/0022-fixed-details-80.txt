@@ -1,0 +1,24 @@
+Session details                                                                 
+Project: notes                                                                  
+Branch: main                                                                    
+UUID: 518a9a25-561d-4c57-900d-cb101ffda071                                      
+Runtime: running                                                                
+Policy: current                                                                 
+Terminals: unattended (0 attached)                                              
+                                                                                
+Agents [A] · latest unattended report                                           
+Activity unknown · no retained report                                           
+                                                                                
+Project services [S]: 3 units observed                                          
+p-project-notes-db.service · active (running)                                   
+Notes private PostgreSQL database                                               
+p-project-notes-web.service · active (running)                                  
+Notes HTTP web application                                                      
+p-project-notes-worker.service · active (running)                               
+j/k/Pg scroll · A reports · S services · p policy · q/Esc back                  
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                
+                                                                                

@@ -1,0 +1,35 @@
+         Stopping D-Bus System Message Bus...                                                                           
+[  OK  ] Stopped D-Bus System Message Bus.                                                                              
+[  OK  ] Closed D-Bus System Message Bus Socket.                                                                        
+[  OK  ] Stopped nftables firewall.                                                                                     
+[  OK  ] Stopped target System Initialization.                                                                          
+[  OK  ] Stopped target Local Encrypted Volumes.                                                                        
+[  OK  ] Stopped Dispatch Password Requests to Console Directory Watch.                                                 
+[  OK  ] Stopped Forward Password Requests to Wall Directory Watch.                                                     
+         Stopping Load AppArmor policies...                                                                             
+[  OK  ] Stopped register-nix-paths.service.                                                                            
+[  OK  ] Stopped Apply Kernel Variables.                                                                                
+[  OK  ] Closed Process Core Dump Socket.                                                                               
+[  OK  ] Stopped Load Kernel Modules.                                                                                   
+         Stopping Record System Boot/Shutdown in UTMP...                                                                
+[  OK  ] Stopped Record System Boot/Shutdown in UTMP.                                                                   
+[  OK  ] Stopped Create System Files and Directories.                                                                   
+[  OK  ] Stopped Load AppArmor policies.                                                                                
+[  OK  ] Stopped target Local File Systems.                                                                             
+         Unmounting /run/keys...                                                                                        
+         Unmounting /run/wrappers...                                                                                    
+[  OK  ] Unmounted /run/wrappers.                                                                                       
+[  OK  ] Stopped target Swaps.                                                                                          
+[  OK  ] Unmounted /run/keys.                                                                                           
+[  OK  ] Stopped target Preparation for Local File Systems.                                                             
+[  OK  ] Reached target Unmount All Filesystems.                                                                        
+[  OK  ] Stopped Remount Root and Kernel File Systems.                                                                  
+[  OK  ] Stopped File System Check on Root Device.                                                                      
+[  OK  ] Stopped Create Static Device Nodes in /dev.                                                                    
+[  OK  ] Stopped Create Static Device Nodes in /dev gracefully.                                                         
+[  OK  ] Reached target System Shutdown.                                                                                
+[  OK  ] Reached target Late Shutdown Services.                                                                         
+[  OK  ] Finished System Power Off.                                                                                     
+[  OK  ] Reached target System Power Off.                                                                               
+[  111.154539] reboot: Power down                                                                                       
+                                                                                                                        

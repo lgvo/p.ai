@@ -1,0 +1,1262 @@
+[1m./dev/demo-vm --public[0m
+[35;1mwarning:[0m Nix search path entry '[35;1m/nix/var/nix/profiles/per-user/root/channels[0m' does not exist, ignoring
+these 24 derivations will be built:
+  /nix/store/cs10xrxmxravpmfhqxxxlmkm4bb1zsvq-p-bundled-plugins-0.1.0.drv
+  /nix/store/00zhll8i2r2qjckam1ybcjj0d3hxw999-p-0.1.0-dev.drv
+  /nix/store/83zizywamh68v20gf3pm86nj8wr03r73-p-demo-api.drv
+  /nix/store/ay9aw6g7mhw74s8l4jpmhcs8lx373akq-p-demo.drv
+  /nix/store/mk4cwifiscmcj4ils1l2pg7hs1miipp1-p-0.1.0-dev.drv
+  /nix/store/zfqv8ing20imvc60l4cq4p1dfndp72yy-system-path.drv
+  /nix/store/8x1c7jmmxqksfny2j8kzvmj4afvfxv90-dbus-1.drv
+  /nix/store/ibrn5dl0fp5q1ncs46xrxyb2nkjrf4bl-X-Restart-Triggers-dbus-broker.drv
+  /nix/store/r7zkd555xdpj0fdvjiq855c01w13k5wg-unit-dbus-broker.service.drv
+  /nix/store/g1khmxgqxh33wfsj61l7w51bg3f3mgw7-user-units.drv
+  /nix/store/fijj4w6n4jzj470x9d9qrdbhwjc7rzrg-unit-p-lab-notes.service.drv
+  /nix/store/hrbypc35qb4f1kn2dfp6gxj79ksc33sz-unit-p-lab-repository.service.drv
+  /nix/store/i3bj1na3y4q213gdbhcrz1q2al5z8m9a-unit-dbus-broker.service.drv
+  /nix/store/rqspqmd81hxpfdk6jxgkh0wbihcmcmm5-p-demo-prepare-plugins.drv
+  /nix/store/xrf6af17pv5dd2glkgpfdbk1rp99rfb1-unit-p.service.drv
+  /nix/store/lz6hnjq6xq0frpr4cm477jawzaazxn4c-system-units.drv
+  /nix/store/8ddfzwsv1ipn6bvhd7qr0hdjsk613ksd-etc.drv
+  /nix/store/rkmwrfgfz5d429wh94vw7jq22sbnngs6-activate.drv
+  /nix/store/hwjvw8b8m8h7dpqc4ras3bm1fcbs4xz3-nixos-system-p-vm-26.11.20260905.c043004.drv
+  /nix/store/i94pg48y17adnkb276754apmidlicbg1-closure-info.drv
+  /nix/store/269ypwz4mqn67yr6dgy5dzixxff7ppwy-closure-info.drv
+  /nix/store/v3fa4i84rbqrjy6vic1f5db752nhk65p-run-nixos-vm.drv
+  /nix/store/wvbcylyg2q7a9n7fhdv2z7sja856hysx-nixos-vm.drv
+  /nix/store/5r9i915i66icb286779flvbqa4kwhr5p-p-demo-vm.drv
+building '/nix/store/cs10xrxmxravpmfhqxxxlmkm4bb1zsvq-p-bundled-plugins-0.1.0.drv'...
+building '/nix/store/00zhll8i2r2qjckam1ybcjj0d3hxw999-p-0.1.0-dev.drv'...
+building '/nix/store/mk4cwifiscmcj4ils1l2pg7hs1miipp1-p-0.1.0-dev.drv'...
+Running phase: unpackPhase
+Running phase: unpackPhase
+unpacking source archive /nix/store/039b2ds74dgn3hdk9bqawvh55r84kn8n-source
+unpacking source archive /nix/store/039b2ds74dgn3hdk9bqawvh55r84kn8n-source
+source root is source
+source root is source
+Running phase: patchPhase
+Running phase: patchPhase
+Running phase: updateAutotoolsGnuConfigScriptsPhase
+Running phase: updateAutotoolsGnuConfigScriptsPhase
+Running phase: configurePhase
+Running phase: configurePhase
+Running phase: buildPhase
+Running phase: buildPhase
+Building subPackage ./cmd/p
+Building subPackage ./tests/integration/cmd/origin-fixture
+W1001 20:48:53.541395    3573 library.go:141] "golang.org/x/sys/unix" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/sys/unix/asm_linux_amd64.s
+W1001 20:48:53.541443    3573 library.go:141] "golang.org/x/sys/cpu" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/sys/cpu/cpu_gc_x86.s
+W1001 20:48:53.541456    3573 library.go:141] "github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64/abi_entry_amd64.s
+W1001 20:48:53.541471    3573 library.go:141] "modernc.org/libc" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/modernc.org/libc/abi0_linux_amd64.s
+/build/source/vendor/modernc.org/libc/tls_linux_amd64.s
+W1001 20:48:53.541506    3573 library.go:141] "golang.org/x/crypto/internal/poly1305" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/crypto/internal/poly1305/sum_amd64.s
+W1001 20:48:53.833473    3648 library.go:141] "golang.org/x/sys/unix" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/sys/unix/asm_linux_amd64.s
+W1001 20:48:53.833508    3648 library.go:141] "golang.org/x/sys/cpu" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/sys/cpu/cpu_gc_x86.s
+W1001 20:48:53.833520    3648 library.go:141] "github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64/abi_entry_amd64.s
+W1001 20:48:53.833532    3648 library.go:141] "modernc.org/libc" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/modernc.org/libc/abi0_linux_amd64.s
+/build/source/vendor/modernc.org/libc/tls_linux_amd64.s
+W1001 20:48:53.833561    3648 library.go:141] "golang.org/x/crypto/internal/poly1305" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/crypto/internal/poly1305/sum_amd64.s
+Running phase: installPhase
+Running phase: fixupPhase
+shrinking RPATHs of ELF executables and libraries in /nix/store/naxcsxk7ck4brh1knrv4ci9gycvawrx7-p-0.1.0-dev
+shrinking /nix/store/naxcsxk7ck4brh1knrv4ci9gycvawrx7-p-0.1.0-dev/bin/origin-fixture
+patchelf: cannot find section '.dynamic'. The input file is most likely statically linked
+checking for references to /build/ in /nix/store/naxcsxk7ck4brh1knrv4ci9gycvawrx7-p-0.1.0-dev...
+patchelf: cannot find section '.dynamic'. The input file is most likely statically linked
+patching script interpreter paths in /nix/store/naxcsxk7ck4brh1knrv4ci9gycvawrx7-p-0.1.0-dev
+stripping (with command strip and flags -S -p) in /nix/store/naxcsxk7ck4brh1knrv4ci9gycvawrx7-p-0.1.0-dev/bin
+W1001 20:48:54.255854    4164 library.go:141] "golang.org/x/sys/unix" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/sys/unix/asm_linux_amd64.s
+W1001 20:48:54.255889    4164 library.go:141] "golang.org/x/sys/cpu" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/sys/cpu/cpu_gc_x86.s
+W1001 20:48:54.255902    4164 library.go:141] "github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64/abi_entry_amd64.s
+W1001 20:48:54.255914    4164 library.go:141] "modernc.org/libc" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/modernc.org/libc/abi0_linux_amd64.s
+/build/source/vendor/modernc.org/libc/tls_linux_amd64.s
+W1001 20:48:54.255944    4164 library.go:141] "golang.org/x/crypto/internal/poly1305" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/crypto/internal/poly1305/sum_amd64.s
+W1001 20:48:54.532582    4239 library.go:141] "golang.org/x/sys/unix" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/sys/unix/asm_linux_amd64.s
+W1001 20:48:54.532626    4239 library.go:141] "golang.org/x/sys/cpu" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/sys/cpu/cpu_gc_x86.s
+W1001 20:48:54.532640    4239 library.go:141] "github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/github.com/tetratelabs/wazero/internal/engine/wazevo/backend/isa/amd64/abi_entry_amd64.s
+W1001 20:48:54.532657    4239 library.go:141] "modernc.org/libc" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/modernc.org/libc/abi0_linux_amd64.s
+/build/source/vendor/modernc.org/libc/tls_linux_amd64.s
+W1001 20:48:54.532689    4239 library.go:141] "golang.org/x/crypto/internal/poly1305" contains non-Go code that can't be inspected for further dependencies:
+/build/source/vendor/golang.org/x/crypto/internal/poly1305/sum_amd64.s
+Running phase: checkPhase
+=== RUN   TestProductionPathCheckRefusesForeignRoot
+    store_test.go:326: actual euid=1000 root_uid=65534 trusted_owner=false trusted_mode=true
+--- PASS: TestProductionPathCheckRefusesForeignRoot (0.00s)
+PASS
+ok      github.com/lgvo/p.ai/internal/control   0.002s
+P_UNIT_FIXTURE_ROOT real_uid=1000 namespace_root_uid=65534 fixture_root_uid=1000
+P_UNIT_FIXTURE_VIEW real_uid=1000 root_uid=1000 tmp_uid=1000 literal_tmp_uid=1000
+ok      github.com/lgvo/p.ai/cmd/p      11.075s
+?       github.com/lgvo/p.ai/cmd/p-runtime-kit  [no test files]
+ok      github.com/lgvo/p.ai/internal/attachment        0.485s
+ok      github.com/lgvo/p.ai/internal/control   11.985s
+ok      github.com/lgvo/p.ai/internal/daemon    10.704s
+ok      github.com/lgvo/p.ai/internal/environmentnix    3.411s
+ok      github.com/lgvo/p.ai/internal/gitservice        11.860s
+ok      github.com/lgvo/p.ai/internal/nixenv    0.082s
+ok      github.com/lgvo/p.ai/internal/plugin    9.741s
+ok      github.com/lgvo/p.ai/internal/runtimeincus      4.240s
+ok      github.com/lgvo/p.ai/internal/runtimekit        5.099s
+ok      github.com/lgvo/p.ai/internal/tui       3.054s
+ok      github.com/lgvo/p.ai/tests/integration/cmd/attachment-fixture   0.536s
+?       github.com/lgvo/p.ai/tests/integration/cmd/builder-fixture      [no test files]
+?       github.com/lgvo/p.ai/tests/integration/cmd/git-fixture  [no test files]
+?       github.com/lgvo/p.ai/tests/integration/cmd/nix-activation-fixture       [no test files]
+?       github.com/lgvo/p.ai/tests/integration/cmd/origin-fixture       [no test files]
+?       github.com/lgvo/p.ai/tests/integration/cmd/runtime-fixture      [no test files]
+ok      github.com/lgvo/p.ai/tests/integration/cmd/session-fixture      0.254s
+?       github.com/lgvo/p.ai/tests/integration/cmd/snapshot-fixture     [no test files]
+ok      github.com/lgvo/p.ai/tests/integration/cmd/tui-mock     0.007s
+[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m{"location": "http://10.233.0.1:443/", "probe": "redirect", "status": 302, "tls_verified": true}
+[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m[32m.[0m
+----------------------------------------------------------------------
+Ran 36 tests in 0.932s
+
+[32mOK[0m
+Running phase: installPhase
+Running phase: fixupPhase
+shrinking RPATHs of ELF executables and libraries in /nix/store/13sczr4m3hk163vjkfpffcdw7f8h5p1n-p-0.1.0-dev
+shrinking /nix/store/13sczr4m3hk163vjkfpffcdw7f8h5p1n-p-0.1.0-dev/bin/p
+patchelf: cannot find section '.dynamic'. The input file is most likely statically linked
+checking for references to /build/ in /nix/store/13sczr4m3hk163vjkfpffcdw7f8h5p1n-p-0.1.0-dev...
+patchelf: cannot find section '.dynamic'. The input file is most likely statically linked
+patching script interpreter paths in /nix/store/13sczr4m3hk163vjkfpffcdw7f8h5p1n-p-0.1.0-dev
+stripping (with command strip and flags -S -p) in /nix/store/13sczr4m3hk163vjkfpffcdw7f8h5p1n-p-0.1.0-dev/bin
+building '/nix/store/83zizywamh68v20gf3pm86nj8wr03r73-p-demo-api.drv'...
+building '/nix/store/rqspqmd81hxpfdk6jxgkh0wbihcmcmm5-p-demo-prepare-plugins.drv'...
+building '/nix/store/ay9aw6g7mhw74s8l4jpmhcs8lx373akq-p-demo.drv'...
+building '/nix/store/fijj4w6n4jzj470x9d9qrdbhwjc7rzrg-unit-p-lab-notes.service.drv'...
+building '/nix/store/hrbypc35qb4f1kn2dfp6gxj79ksc33sz-unit-p-lab-repository.service.drv'...
+structuredAttrs is enabled
+building '/nix/store/xrf6af17pv5dd2glkgpfdbk1rp99rfb1-unit-p.service.drv'...
+structuredAttrs is enabled
+building '/nix/store/zfqv8ing20imvc60l4cq4p1dfndp72yy-system-path.drv'...
+structuredAttrs is enabled
+structuredAttrs is enabled
+created 2166 symlinks in user environment
+building '/nix/store/8x1c7jmmxqksfny2j8kzvmj4afvfxv90-dbus-1.drv'...
+building '/nix/store/ibrn5dl0fp5q1ncs46xrxyb2nkjrf4bl-X-Restart-Triggers-dbus-broker.drv'...
+building '/nix/store/i3bj1na3y4q213gdbhcrz1q2al5z8m9a-unit-dbus-broker.service.drv'...
+building '/nix/store/r7zkd555xdpj0fdvjiq855c01w13k5wg-unit-dbus-broker.service.drv'...
+structuredAttrs is enabled
+structuredAttrs is enabled
+building '/nix/store/lz6hnjq6xq0frpr4cm477jawzaazxn4c-system-units.drv'...
+building '/nix/store/g1khmxgqxh33wfsj61l7w51bg3f3mgw7-user-units.drv'...
+building '/nix/store/8ddfzwsv1ipn6bvhd7qr0hdjsk613ksd-etc.drv'...
+building '/nix/store/rkmwrfgfz5d429wh94vw7jq22sbnngs6-activate.drv'...
+building '/nix/store/hwjvw8b8m8h7dpqc4ras3bm1fcbs4xz3-nixos-system-p-vm-26.11.20260905.c043004.drv'...
+structuredAttrs is enabled
+building '/nix/store/i94pg48y17adnkb276754apmidlicbg1-closure-info.drv'...
+structuredAttrs is enabled
+building '/nix/store/269ypwz4mqn67yr6dgy5dzixxff7ppwy-closure-info.drv'...
+structuredAttrs is enabled
+building '/nix/store/v3fa4i84rbqrjy6vic1f5db752nhk65p-run-nixos-vm.drv'...
+building '/nix/store/wvbcylyg2q7a9n7fhdv2z7sja856hysx-nixos-vm.drv'...
+building '/nix/store/5r9i915i66icb286779flvbqa4kwhr5p-p-demo-vm.drv'...
+P demo disk: /home/lgvo/p.ai/.cache/p-vm/demo-public/disk.qcow2
+The guest opens a shell. Use p api for the API or p tui for the TUI.
+Detach from a session with Ctrl+B, d. Shut down with p-demo-poweroff.
+QEMU emergency exit: Ctrl+A, X. The demo disk is retained.
+Creating Nix store image...
+Created Nix store image.
+c[?7l[2J[0mSeaBIOS (version rel-1.17.0-0-gb52ca86e094d-prebuilt.qemu.org)
+
+
+iPXE (http://ipxe.org) 00:02.0 CA00 PCI2.10 PnP PMM+7EFCA6F0+7EF2A6F0 CA00
+Press Ctrl-B to configure iPXE (PCI 00:02.0)...                                                                               
+
+
+Booting from ROM...
+Probing EDD (edd=off to disable)... ok
+c[?7l[2JP+q6E616D65\[18t7[32766;32766H[6n8[!p]104\[0m[?7h[1G[0J[0;1;39mBooting initrd of [0m[0;38;2;126;186;228mNixOS 26.11 (Zokor) (Initrd)[0m[0;1;39m.[0m
+]3008;start=64225ea9daef405fae2808fb6ed7ebf6;user=root;hostname=p-vm;machineid=7c5df4020115497690ec94a19b7d433a;bootid=71586d3567af495f96d21dc6c5ca2b22;pid=1;pidfdid=2;comm=systemd;type=boot\[[0;32m  OK  [0m] Created slice [0;1;39mSlice /system/modprobe[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDispatch Password Requests to Console Directory Watch[0m.
+         Expecting device [0;1;39m/dev/disk/by-label/nix-store[0m...
+         Expecting device [0;1;39m/dev/disk/by-label/nixos[0m...
+[[0;32m  OK  [0m] Reached target [0;1;39mPath Units[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSlice Units[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSwaps[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mTimer Units[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mD-Bus System Message Bus Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mJournal Socket (/dev/log)[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mJournal Sockets[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mudev Control Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mudev Kernel Socket[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSocket Units[0m.
+         Starting [0;1;39mCreate List of Static Device Nodes[0m...
+         Starting [0;1;39mLoad Kernel Module configfs[0m...
+         Starting [0;1;39mJournal Service[0m...
+         Starting [0;1;39mLoad Kernel Modules[0m...
+         Starting [0;1;39mColdplug All udev Devices[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mCreate List of Static Device Nodes[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad Kernel Module configfs[0m.
+         Starting [0;1;39mCreate Static Device Nodes in /dev gracefully[0m...
+[[0;32m  OK  [0m] Started [0;1;39mJournal Service[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad Kernel Modules[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Static Device Nodes in /dev gracefully[0m.
+         Starting [0;1;39mApply Kernel Variables[0m...
+         Starting [0;1;39mCreate Static Device Nodes in /dev[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mApply Kernel Variables[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Static Device Nodes in /dev[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mPreparation for Local File Systems[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mLocal File Systems[0m.
+         Starting [0;1;39mCreate System Files and Directories[0m...
+         Starting [0;1;39mRule-based Manager for Device Events and Files[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mColdplug All udev Devices[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate System Files and Directories[0m.
+[[0;32m  OK  [0m] Started [0;1;39mRule-based Manager for Device Events and Files[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSystem Initialization[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mBasic System[0m.
+         Starting [0;1;39mVirtual Console Setup[0m...
+[[0;32m  OK  [0m] Found device [0;1;39m/dev/disk/by-label/nixos[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mVirtual Console Setup[0m.
+[[0;32m  OK  [0m] Found device [0;1;39m/dev/disk/by-label/nix-store[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mInitrd Root Device[0m.
+         Starting [0;1;39mFile System Check on /dev/disk/by-label/nixos[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mFile System Check on /dev/disk/by-label/nixos[0m.
+         Mounting [0;1;39m/sysroot[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39m/sysroot[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mInitrd Root File System[0m.
+         Mounting [0;1;39m/sysroot/nix/.ro-store[0m...
+         Mounting [0;1;39m/sysroot/run[0m...
+         Starting [0;1;39mMountpoints Configured in the Real Root[0m...
+         Starting [0;1;39mrw-sysroot-nix-store.service[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39m/sysroot/run[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mrw-sysroot-nix-store.service[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39m/sysroot/nix/.ro-store[0m.
+         Starting [0;1;39mrw-sysroot-nix-store.service[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mMountpoints Configured in the Real Root[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mrw-sysroot-nix-store.service[0m.
+         Mounting [0;1;39m/sysroot/nix/store[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39m/sysroot/nix/store[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mInitrd File Systems[0m.
+         Starting [0;1;39mFind NixOS closure[0m...
+         Starting [0;1;39mCreate Volatile Files and Directories in the Real Root[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Volatile Files and Directories in the Real Root[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mFind NixOS closure[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mInitrd Default Target[0m.
+         Starting [0;1;39mCleaning Up and Shutting Down Daemons[0m...
+[[0;32m  OK  [0m] Stopped target [0;1;39mInitrd Default Target[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mBasic System[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mInitrd Root Device[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPath Units[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDispatch Password Requests to Console Directory Watch[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSlice Units[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSocket Units[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSystem Initialization[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSwaps[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mTimer Units[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mD-Bus System Message Bus Socket[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mFind NixOS closure[0m.
+         Starting [0;1;39mrw-sysroot-nix-store.service[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mApply Kernel Variables[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mLoad Kernel Modules[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Volatile Files and Directories in the Real Root[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate System Files and Directories[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mLocal File Systems[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPreparation for Local File Systems[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mColdplug All udev Devices[0m.
+         Stopping [0;1;39mRule-based Manager for Device Events and Files[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mVirtual Console Setup[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mrw-sysroot-nix-store.service[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCleaning Up and Shutting Down Daemons[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mRule-based Manager for Device Events and Files[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mudev Control Socket[0m.
+         Starting [0;1;39mCleanup udev Database[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Static Device Nodes in /dev[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Static Device Nodes in /dev gracefully[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate List of Static Device Nodes[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCleanup udev Database[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSwitch Root[0m.
+         Starting [0;1;39mNixOS Activation[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mNixOS Activation[0m.
+         Starting [0;1;39mSwitch Root[0m...
+P+q6E616D65\[18t7[32766;32766H[6n8[!p]104\[0m[?7h[1G[0J
+[0;1;39mWelcome to [0m[0;38;2;126;186;228mNixOS 26.11 (Zokor)[0m[0;1;39m![0m
+
+]3008;start=84011734f6d541f496806218c3dc7021;user=root;hostname=p-vm;machineid=1b15ff137f35412d9e71700e14a3af4e;bootid=71586d3567af495f96d21dc6c5ca2b22;pid=1;pidfdid=2;comm=systemd;type=boot\[[0;32m  OK  [0m] Stopped [0;1;39minitrd-switch-root.service[0m.
+[[0;32m  OK  [0m] Created slice [0;1;39mSlice /system/getty[0m.
+[[0;32m  OK  [0m] Created slice [0;1;39mSlice /system/serial-getty[0m.
+[[0;32m  OK  [0m] Created slice [0;1;39mUser and Session Slice[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDispatch Password Requests to Console Directory Watch[0m.
+[[0;32m  OK  [0m] Started [0;1;39mForward Password Requests to Wall Directory Watch[0m.
+         Expecting device [0;1;39m/dev/ttyS0[0m...
+[[0;32m  OK  [0m] Reached target [0;1;39mLocal Encrypted Volumes[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39minitrd-fs.target[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39minitrd-root-fs.target[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39minitrd-switch-root.target[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mVirtual Machines and Containers[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mPath Units[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mRemote File Systems[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSlice Units[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSwaps[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mQuery the User Interactively for a Password[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mProcess Core Dump Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mCredential Encryption/Decryption[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mFactory Reset Management[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mHostname Service Socket[0m.
+         Starting [0;1;39mJournal Log Access Socket[0m...
+[[0;32m  OK  [0m] Listening on [0;1;39mJournal Audit Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mConsole Output Muting Service Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mUserspace Out-Of-Memory (OOM) Killer Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mDisk Repartitioning Service Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mudev Control Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mudev Varlink Socket[0m.
+         Mounting [0;1;39mHuge Pages File System[0m...
+         Mounting [0;1;39mPOSIX Message Queue File System[0m...
+         Mounting [0;1;39mKernel Debug File System[0m...
+         Mounting [0;1;39mKernel Trace File System[0m...
+         Starting [0;1;39mCreate List of Static Device Nodes[0m...
+         Starting [0;1;39mLoad Kernel Module configfs[0m...
+         Mounting [0;1;39mFUSE Control File System[0m...
+         Starting [0;1;39mJournal Service[0m...
+         Starting [0;1;39mLoad Kernel Modules[0m...
+         Starting [0;1;39mUserspace Out-Of-Memory (OOM) Killer[0m...
+         Starting [0;1;39mRemount Root and Kernel File Systems[0m...
+         Starting [0;1;39mColdplug All udev Devices[0m...
+[[0;32m  OK  [0m] Listening on [0;1;39mJournal Log Access Socket[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mHuge Pages File System[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mPOSIX Message Queue File System[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mKernel Debug File System[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mKernel Trace File System[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate List of Static Device Nodes[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad Kernel Module configfs[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mFUSE Control File System[0m.
+         Mounting [0;1;39mKernel Configuration File System[0m...
+         Starting [0;1;39mCreate Static Device Nodes in /dev gracefully[0m...
+[[0;32m  OK  [0m] Started [0;1;39mJournal Service[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mRemount Root and Kernel File Systems[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39mKernel Configuration File System[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mDisk Image Download Service Socket[0m.
+         Starting [0;1;39mFlush Journal to Persistent Storage[0m...
+         Starting [0;1;39mLoad/Save OS Random Seed[0m...
+[[0;32m  OK  [0m] Started [0;1;39mUserspace Out-Of-Memory (OOM) Killer[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Static Device Nodes in /dev gracefully[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mColdplug All udev Devices[0m.
+         Starting [0;1;39mCreate Static Device Nodes in /dev[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mCreate Static Device Nodes in /dev[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad/Save OS Random Seed[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mPreparation for Local File Systems[0m.
+         Starting [0;1;39mRule-based Manager for Device Events and Files[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mFlush Journal to Persistent Storage[0m.
+[[0;32m  OK  [0m] Started [0;1;39mRule-based Manager for Device Events and Files[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad Kernel Modules[0m.
+         Starting [0;1;39mApply Kernel Variables[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mApply Kernel Variables[0m.
+         Starting [0;1;39mVirtual Console Setup[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mVirtual Console Setup[0m.
+         Starting [0;1;39mVirtual Console Setup[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mVirtual Console Setup[0m.
+         Mounting [0;1;39m/run/wrappers[0m...
+[[0;32m  OK  [0m] Mounted [0;1;39m/run/wrappers[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mLocal File Systems[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mBoot Loader Control Service Socket[0m.
+         Starting [0;1;39mLoad AppArmor policies[0m...
+         Starting [0;1;39mregister-nix-paths.service[0m...
+         Starting [0;1;39mCreate SUID/SGID Wrappers[0m...
+         Starting [0;1;39mCreate System Files and Directories[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mCreate System Files and Directories[0m.
+         Starting [0;1;39mRecord System Boot/Shutdown in UTMP[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mRecord System Boot/Shutdown in UTMP[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mCreate SUID/SGID Wrappers[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mregister-nix-paths.service[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLoad AppArmor policies[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSystem Initialization[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDiscard unused filesystem blocks once a week[0m.
+[[0;32m  OK  [0m] Started [0;1;39mlogrotate.timer[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDaily Cleanup of Temporary Directories[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mTimer Units[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mD-Bus System Message Bus Socket[0m.
+         Starting [0;1;39mIncus user UNIX socket[0m...
+         Starting [0;1;39mIncus UNIX socket[0m...
+[[0;32m  OK  [0m] Listening on [0;1;39mNix Daemon Socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mVirtual Machine and Container Registration Service Socket[0m.
+         Starting [0;1;39mnftables firewall[0m...
+[[0;32m  OK  [0m] Listening on [0;1;39mIncus user UNIX socket[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mIncus UNIX socket[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSocket Units[0m.
+         Starting [0;1;39mD-Bus System Message Bus[0m...
+[[0;32m  OK  [0m] Started [0;1;39mD-Bus System Message Bus[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mBasic System[0m.
+         Starting [0;1;39mLogrotate configuration check[0m...
+         Starting [0;1;39mFUSE filesystem for LXC[0m...
+         Starting [0;1;39mName Service Cache Daemon (nsncd)[0m...
+         Starting [0;1;39mPost-Boot Actions[0m...
+[[0;32m  OK  [0m] Started [0;1;39mReset console on configuration changes[0m.
+         Starting [0;1;39mresolvconf update[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mPost-Boot Actions[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mLogrotate configuration check[0m.
+[[0;32m  OK  [0m] Started [0;1;39mFUSE filesystem for LXC[0m.
+[[0;32m  OK  [0m] Started [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mHost and Network Name Lookups[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mUser and Group Name Lookups[0m.
+         Starting [0;1;39mUser Login Management[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mnftables firewall[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mHost and Network Name Lookups[0m.
+         Stopping [0;1;39mHost and Network Name Lookups[0m...
+[[0;32m  OK  [0m] Stopped target [0;1;39mUser and Group Name Lookups[0m.
+         Stopping [0;1;39mUser and Group Name Lookups[0m...
+         Stopping [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Started [0;1;39mUser Login Management[0m.
+         Starting [0;1;39mlinger-users.service[0m...
+         Starting [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mresolvconf update[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mPreparation for Network[0m.
+         Starting [0;1;39mDHCP Client[0m...
+         Starting [0;1;39mExtra networking commands.[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mlinger-users.service[0m.
+[[0;32m  OK  [0m] Started [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mHost and Network Name Lookups[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mUser and Group Name Lookups[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mHost and Network Name Lookups[0m.
+         Stopping [0;1;39mHost and Network Name Lookups[0m...
+[[0;32m  OK  [0m] Stopped target [0;1;39mUser and Group Name Lookups[0m.
+         Stopping [0;1;39mUser and Group Name Lookups[0m...
+         Stopping [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mName Service Cache Daemon (nsncd)[0m.
+         Starting [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mExtra networking commands.[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mNetwork[0m.
+[[0;32m  OK  [0m] Listening on [0;1;39mLoad/Save RF Kill Switch Status /dev/rfkill Watch[0m.
+[[0;32m  OK  [0m] Started [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mHost and Network Name Lookups[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mUser and Group Name Lookups[0m.
+         Starting [0;1;39mPermit User Sessions[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mPermit User Sessions[0m.
+[[0;32m  OK  [0m] Started [0;1;39mGetty on tty1[0m.
+[[0;32m  OK  [0m] Started [0;1;39mSerial Getty on ttyS0[0m.
+[[0;32m  OK  [0m] Started [0;1;39mDHCP Client[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mNetwork is Online[0m.
+         Starting [0;1;39mIncus Container and Virtual Machine Management Daemon[0m...
+         Starting [0;1;39mP fixed DNS-over-HTTPS resolver[0m...
+[[0;32m  OK  [0m] Started [0;1;39mP fixed DNS-over-HTTPS resolver[0m.
+[    6.460115] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] dnscrypt-proxy 2.1.18
+[    6.475226] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Using default Weighted Power of Two (WP2) load balancing strategy
+[    6.477190] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Now listening to 127.0.0.1:53 [UDP]
+[    6.478812] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Now listening to 127.0.0.1:53 [TCP]
+[    6.480273] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Firefox workaround initialized
+[    6.481675] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Hot reload is disabled
+[    6.533092] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] [p-quad9] OK (DoH) - rtt: 12ms
+[    6.619888] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] [p-cloudflare] OK (DoH) - rtt: 53ms
+[    6.621131] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Sorted latencies:
+[    6.622125] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] -    12ms p-quad9
+[    6.623102] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] -    53ms p-cloudflare
+[    6.624132] dnscrypt-proxy[691]: [2026-10-01 20:49:30] [NOTICE] Server with the lowest initial latency: p-quad9 (rtt: 12ms), live servers: 2
+[[0;32m  OK  [0m] Started [0;1;39mIncus Container and Virtual Machine Management Daemon[0m.
+         Starting [0;1;39mIncus initialization with preseed file[0m...
+         Starting [0;1;39mIncus Instances Startup/Shutdown[0m...
+[[0;32m  OK  [0m] Finished [0;1;39mIncus Instances Startup/Shutdown[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mIncus initialization with preseed file[0m.
+         Starting [0;1;39mPrepare the confined Incus lab and pinned fixture image[0m...
+[[0;32m  OK  [0m] Started [0;1;39mIncus Container and Virtual Machine Management User Daemon[0m.
+[!p]104\[0m[?7h[1G[0J7[32766;32766H[6n8[!p]104\[0m[?7h[1G[0J7[32766;32766H[6n8]3008;start=bc6b1dbb5c5b48f48fd1786af8d191e1;user=root;hostname=p-vm;machineid=1b15ff137f35412d9e71700e14a3af4e;bootid=71586d3567af495f96d21dc6c5ca2b22;pid=669;pidfdid=670;comm=(agetty);servicename=serial-getty@ttyS0.service;invocationid=ff62533f36fb4701935b09316cd6ee50;type=service\P+q6E616D65\
+
+[1;32m<<< Welcome to NixOS 26.11.20260905.c043004 (x86_64) - ttyS0 >>>[0m
+P lab. Run p api, p tui, or p-demo-poweroff.
+
+p-vm login: pdev (automatic login)
+
+]3008;start=929c417b1b9140ae8de19f47cacca476;user=root;hostname=p-vm;machineid=1b15ff137f35412d9e71700e14a3af4e;bootid=71586d3567af495f96d21dc6c5ca2b22;pid=669;pidfdid=670;comm=login;targetuser=pdev;sessionid=5;type=session\P lab shell: p api calls the API; p tui opens the TUI; p-demo-poweroff shuts down.
+The P instance is configured. The daemon starts in the background.
+Project p-ai/main is seeded from committed source on first boot. Check systemctl status p-lab-repository.
+Public DNS/HTTP(S) enabled; host/LAN/private destinations blocked.
+Project notes/main is seeded with database, web and worker services. Check systemctl status p-lab-notes.
+[?2004h
+[1;32m[]0;pdev@p-vm: ~pdev@p-vm:~]$[0m export TERM=xterm-256color; stty rows 35 cols 120; p tui
+[?2004l[?1049h[?2026$p[?2027$p]11;?[>4m[2J[H[?25l[?5W[?2004h[>4;2m[>1u[?u[H[2J [38;5;183;1mP · Sessions · waiting → running → other[m
+ [38;5;237m╭──────────────────────────────────────────────────────────────────────────╮[m [38;5;237m╭───────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[53X[3;77H[38;5;237m│[m [38;5;237m│[m [38;5;183;1mSession details[m[23X[23C[38;5;237m│[m
+ [38;5;237m│[m [38;5;103m0–0 of 0 · selected 0[m[52X[4;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mSelect a session to inspect its real…[m [38;5;237m│[m
+ [38;5;237m│[m [38;5;103mNo matching entries[m[54X[5;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[6;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[7;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[8;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[9;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[10;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[11;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[12;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[13;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[14;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[15;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[16;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[17;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[18;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[19;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[20;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[21;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[22;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[23;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[24;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[25;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[26;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[27;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[28;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m╰──────────────────────────────────────────────────────────────────────────╯[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mj/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create[m       [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mP project · / search · D details · A reports · S services · O operations[m     [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103m? help[m[71X[32;79H[38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mp policy · b branches · R rename · d discard · X delete · q/Esc back[m         [38;5;237m╰───────────────────────────────────────╯[m[4;4H[38;5;103m1–3 of 3 · selected 1[m[52X[4;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mProject: notes[m[23X
+[4G[38;5;195;48;5;54;1m› notes            ├─ main[30X[5;60H[38;5;77;49;22mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: main[m
+[6G[38;5;195mnotes            └─ test-note-feature[17X[6;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mUUID:[m
+[6G[38;5;195mp-ai[13X[7;23H└─ main[30X[7;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195m518a9a25-561d-4c57-900d-cb101ffda071[m[8;81H[38;5;195mRuntime: [38;5;77mrunning[m · Policy: [38;5;77mcurrent[m[9;81H[38;5;195mTerminals: unattended (0 attached)[m[11;81H[38;5;195m├─ Agents [A] · latest report[m[12;81H[38;5;195m│  Activity unknown · no retained[m[13;81H[38;5;195mreport[m
+[Z[38;5;195m│[m 
+[38;5;195m└─ Project services [S] · loading…[m[17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [4;24H[38;5;103m2[m 
+[4G  [38;5;195mnotes            ├─ main[30X[5;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: test-note-feature[m
+[4G[38;5;195;48;5;54;1m› notes            └─ test-note-feature[17X[m[7;81H[38;5;195m1dca4948-6056-4a54-9499-6cf9872e78a0[m[16;28r[16;1HM[1;35r[15;107H[38;5;195mno project[m
+ [38;5;237m│[m[74X[16;77H[38;5;237m│[m [38;5;237m│[m [38;5;195munits observed[m[24X[24C[38;5;237m│[m[29d[J[1;12H[1K [38;5;237m╭──────────────────────────────────────────────────────────────────────────────────────────────╮[m[2;12H[1K [38;5;237m│[m [38;5;183;1mProject services[m[77X[2;108H[38;5;237m│[m[K[3;12H[1K [38;5;237m│[m [38;5;103m0–0 of 0 · selected 0[m[50X[3;86H[11P[4;12H[1K [38;5;237m│[m [38;5;103mLoading service inventory…[m[44X[4;85H[11P[5;12H[1K [38;5;237m│[m[82X[5;96H[11P[6;12H[1K [38;5;237m│[m[53X[6;76H[11P[7;12H[1K [38;5;237m│[m[93X[7;107H [38;5;237m│[m[K[8;12H[1K [38;5;237m│[m[91X[8;105H   [38;5;237m│[m[K[9;12H[1K [38;5;237m│[m[91X[9;105H   [38;5;237m│[m[K[10;12H[1K [38;5;237m│[10;70H[m[11P[11;12H[1K [38;5;237m│[m[86X[11;100H        [38;5;237m│[m[K[12;12H[1K [38;5;237m│[m[90X[12;104H    [38;5;237m│[m[K[13;12H[1K [38;5;237m│[13;77H[m[11P[14;12H[1K [38;5;237m│[14;72H[m[11P[15;12H[1K [38;5;237m│[m[93X[15;107H [38;5;237m│[m[K[16;12H[1K [38;5;237m│[m[71X[16;85H[11P[17;12H[1K [38;5;237m│[17;70H[m[11P[18;12H[1K [38;5;237m│[m[94X[18;108H[38;5;237m│[m[K[19;12H[1K [38;5;237m│[19;76H[m[11P[20;12H[1K [38;5;237m│[20;70H[m[11P[21;12H[1K [38;5;237m│[21;70H[m[11P[22;12H[1K [38;5;237m╰──────────────────────────────────────────────────────────────────────────────────────────────╯[m[K[23;12H[1K [38;5;103mq/Esc back[m[K[24;12H[1K [38;5;195mSession: notes / test-note-feature[m[K[25;12H[1K [38;5;195mSession-user p-project-*.service units only.[m[K[26;12H[1K [38;5;195mPorts are session-local; no host publication is added.[m[K[27;12H[1K [38;5;195mService observation unavailable/loading; controls disabled.[m[K[28;12H[1K [38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[K[5;27r[5;1HM[1;35r[4;15H[38;5;103mNo matching entries[m       [5;13H[38;5;237m│[m[94X[5;108H[38;5;237m│[m[28d[K[29;13H[38;5;195mNo project units observed. Install a user unit inside the session.[m[30;13H[38;5;195mUse ~/.config/systemd/user/p-project-NAME.service and systemctl --user.[m[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[H [38;5;183;1mP · Sessions · waiting → running → other[m[K
+ [38;5;237m╭──────────────────────────────────────────────────────────────────────────╮[m [38;5;237m╭───────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[53X[3;77H[38;5;237m│[m [38;5;237m│[m [38;5;183;1mSession details[m[23X[23C[38;5;237m│[m
+ [38;5;237m│[m [38;5;103m1–3 of 3 · selected 2[m[52X[4;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mProject: notes[m[24X[24C[38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mnotes            ├─ main[30X[5;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: test-note-feature[m             [38;5;237m│[m
+ [38;5;237m│[m [38;5;195;48;5;54;1m› notes            └─ test-note-feature[17X[6;60H[38;5;77;49;22mrunning[6;76H[m [38;5;237m│[m [38;5;237m│[m [38;5;195mUUID:[m[33X[33C[38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mp-ai[13X[7;23H└─ main[30X[7;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195m1dca4948-6056-4a54-9499-6cf9872e78a0[m  [38;5;237m│[m
+ [38;5;237m│[m[74X[8;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mRuntime: [38;5;77mrunning[m · Policy: [38;5;77mcurrent[m    [38;5;237m│[m
+ [38;5;237m│[m[74X[9;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mTerminals: unattended (0 attached)[m    [38;5;237m│[m
+ [38;5;237m│[m           [10;70H       [38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[11;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m├─ Agents [A] · latest report[m         [38;5;237m│[m
+ [38;5;237m│[m[74X[12;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m│  Activity unknown · no retained[m     [38;5;237m│[m
+ [38;5;237m│[m           [13;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mreport[m[32X[32C[38;5;237m│[m
+ [38;5;237m│[m           [14;72H     [38;5;237m│[m [38;5;237m│[m [38;5;195m│[m[37X[37C[38;5;237m│[m
+ [38;5;237m│[m[74X[15;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m└─ Project services [S] · no project[m  [38;5;237m│[m
+ [38;5;237m│[m[74X[16;77H[38;5;237m│[m [38;5;237m│[m [38;5;195munits observed[m[24X[24C[38;5;237m│[m
+ [38;5;237m│[m           [17;70H       [38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[18;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mD complete details · A report · S all[m [38;5;237m│[m
+ [38;5;237m│[m           [19;76H [38;5;237m│[m [38;5;237m│[m [38;5;195munits[m[33X[33C[38;5;237m│[m
+ [38;5;237m│[m           [20;70H       [38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m           [21;70H       [38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m           [22;70H       [38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[23;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[24;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[25;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[26;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[27;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[28;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m╰──────────────────────────────────────────────────────────────────────────╯[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mj/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create[m       [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mP project · / search · D details · A reports · S services · O operations[m     [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103m? help[m[71X[32;79H[38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mp policy · b branches · R rename · d discard · X delete · q/Esc back[m         [38;5;237m╰───────────────────────────────────────╯[m[16;28r[28;1H
+[1;35r[4;24H[38;5;103m1[m 
+[4G[38;5;195;48;5;54;1m› notes            ├─ main[30X[5;60H[38;5;77;49;22mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: main[m             
+[4G  [38;5;195mnotes            └─ test-note-feature[17X[m[7;81H[38;5;195m518a9a25-561d-4c57-900d-cb101ffda071[m[15;107H[38;5;195mloading…[m  [28;2H[38;5;237m│[m[74X[28;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m[15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[4B[J[1;12H[1K [38;5;237m╭──────────────────────────────────────────────────────────────────────────────────────────────╮[m[2;12H[1K [38;5;237m│[m [38;5;183;1mProject services[m[77X[2;108H[38;5;237m│[m[K[3;12H[1K [38;5;237m│[m [38;5;103m0–0 of 0 · selected 0[m[50X[3;86H[11P[4;12H[1K [38;5;237m│[m [38;5;103mLoading service inventory…[m[44X[4;85H[11P[5;12H[1K [38;5;237m│[m[69X[5;83H[11P[6;12H[1K [38;5;237m│[m[53X[6;76H[11P[7;12H[1K [38;5;237m│[m[93X[7;107H [38;5;237m│[m[K[8;12H[1K [38;5;237m│[m[91X[8;105H   [38;5;237m│[m[K[9;12H[1K [38;5;237m│[m[91X[9;105H   [38;5;237m│[m[K[10;12H[1K [38;5;237m│[10;70H[m[11P[11;12H[1K [38;5;237m│[m[86X[11;100H        [38;5;237m│[m[K[12;12H[1K [38;5;237m│[m[90X[12;104H    [38;5;237m│[m[K[13;12H[1K [38;5;237m│[13;77H[m[11P[14;12H[1K [38;5;237m│[14;72H[m[11P[15;12H[1K [38;5;237m│[m[90X[15;104H    [38;5;237m│[m[K[16;12H[1K [38;5;237m│[m[64X[16;79H[11P[17;12H[1K [38;5;237m│[m[86X[17;100H        [38;5;237m│[m[K[18;12H[1K [38;5;237m│[m[76X[18;90H[11P[19;12H[1K [38;5;237m│[m[87X[19;101H       [38;5;237m│[m[K[20;12H[1K [38;5;237m│[m[76X[20;90H[11P[21;12H[1K [38;5;237m│[m[90X[21;104H    [38;5;237m│[m[K[22;12H[1K [38;5;237m╰──────────────────────────────────────────────────────────────────────────────────────────────╯[m[K[23;12H[1K [38;5;103mq/Esc back[m[K[24;12H[1K [38;5;195mSession: notes / main[m[K[25;12H[1K [38;5;195mSession-user p-project-*.service units only.[m[K[26;12H[1K [38;5;195mPorts are session-local; no host publication is added.[m[K[27;12H[1K [38;5;195mService observation unavailable/loading; controls disabled.[m[K[28;12H[1K [38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[K[5;28r[5;1H[2T[1;35r[3;15H[38;5;103m1–3 of 3 · selected 1[m[4;15H[38;5;195;48;5;54;1m› p-project-notes-db.service[48X[4;91H[38;5;77;49;22mactive (running)[m[5;13H[38;5;237m│[m   [38;5;195mp-project-notes-web.service[47X[5;91H[38;5;77mactive (running)[m [38;5;237m│[m[6;13H[38;5;237m│[m   [38;5;195mp-project-notes-worker.service[44X[6;91H[38;5;77mactive (running)[m [38;5;237m│[m[25;13H[38;5;103mEnter/J journal · s stop · r restart · q/Esc back[m[30;13H[38;5;195mNotes private PostgreSQL database[m[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[5d[J[1;13H[38;5;183;1mp-project-notes-db.service · journal tail · 1–0/0 · follow true[m[K
+[K[3;13H[38;5;103mj/k/Pg scroll · h/l pan · / find · n/N match · f follow · q/Esc back[m[K[4;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[K[1;57H[38;5;183;1m80–104/104 · follow true[m[2;13H[38;5;195m  80 2026-10-01T20:46:06+00:00 p-session python3.14[374]: 2026-10-01 20:46:06.663 UTC [374]…[m[3;13H[38;5;195m  81 2026-10-01T20:46:06+00:00 p-session python3.14[321]: 2026-10-01 20:46:06.666 UTC [321]…[m[4;13H[38;5;195m  82 2026-10-01T20:46:06+00:00 p-session python3.14[322]: notes schema ready (version 1)[m[5;13H[38;5;195m  83 2026-10-01T20:46:06+00:00 p-session systemd[305]: Started Notes private PostgreSQL dat…[m[6;13H[38;5;195m  84 2026-10-01T20:47:47+00:00 p-session python3.14[321]: 2026-10-01 20:47:47.115 UTC [321]…[m[7;13H[38;5;195m  85 2026-10-01T20:47:47+00:00 p-session systemd[305]: Stopping Notes private PostgreSQL da…[m[8;13H[38;5;195m  86 2026-10-01T20:47:47+00:00 p-session python3.14[321]: 2026-10-01 20:47:47.126 UTC [321]…[m[9;13H[38;5;195m  87 2026-10-01T20:47:47+00:00 p-session python3.14[321]: 2026-10-01 20:47:47.132 UTC [321]…[m[10;13H[38;5;195m  88 2026-10-01T20:47:47+00:00 p-session python3.14[372]: 2026-10-01 20:47:47.132 UTC [372]…[m[11;13H[38;5;195m  89 2026-10-01T20:47:47+00:00 p-session python3.14[372]: 2026-10-01 20:47:47.134 UTC [372]…[m[12;13H[38;5;195m  90 2026-10-01T20:47:47+00:00 p-session python3.14[372]: 2026-10-01 20:47:47.153 UTC [372]…[m[13;13H[38;5;195m  91 2026-10-01T20:47:47+00:00 p-session python3.14[321]: 2026-10-01 20:47:47.163 UTC [321]…[m[14;13H[38;5;195m  92 2026-10-01T20:47:47+00:00 p-session systemd[305]: Stopped Notes private PostgreSQL dat…[m[15;13H[38;5;195m  93 2026-10-01T20:47:47+00:00 p-session systemd[305]: p-project-notes-db.service: Consumed…[m[16;13H[38;5;195m  94 -- Boot 06492626f374454e9b7d7fb6088f49b1 --[m[17;13H[38;5;195m  95 2026-10-01T20:49:32+00:00 p-session systemd[306]: Starting Notes private PostgreSQL da…[m[18;13H[38;5;195m  96 2026-10-01T20:49:32+00:00 p-session python3.14[321]: starting PostgreSQL: private sock…[m[19;13H[38;5;195m  97 2026-10-01T20:49:32+00:00 p-session python3.14[321]: 2026-10-01 20:49:32.845 UTC [321]…[m[20;13H[38;5;195m  98 2026-10-01T20:49:32+00:00 p-session python3.14[321]: 2026-10-01 20:49:32.848 UTC [321]…[m[21;13H[38;5;195m  99 2026-10-01T20:49:32+00:00 p-session python3.14[374]: 2026-10-01 20:49:32.856 UTC [374]…[m[22;13H[38;5;195m 100 2026-10-01T20:49:32+00:00 p-session python3.14[321]: 2026-10-01 20:49:32.863 UTC [321]…[m[23;13H[38;5;195m 101 2026-10-01T20:49:32+00:00 p-session python3.14[322]: notes schema ready (version 1)[m[24;13H[38;5;195m 102 2026-10-01T20:49:32+00:00 p-session systemd[306]: Started Notes private PostgreSQL dat…[m[25;13H[38;5;195m 103 2026-10-01T20:54:32+00:00 p-session python3.14[372]: 2026-10-01 20:54:32.956 UTC [372]…[m[26;13H[38;5;195m 104 2026-10-01T20:54:32+00:00 p-session python3.14[372]: 2026-10-01 20:54:32.993 UTC [372]…[m[27;13H[38;5;103mj/k/Pg scroll · h/l pan · / find · n/N match · f follow · q/Esc back[m[28;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[28;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[28;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[28;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[28;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[28;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[1;13H[38;5;237m╭──────────────────────────────────────────────────────────────────────────────────────────────╮[m[2;13H[38;5;237m│[m [38;5;183;1mProject services[m[77X[2;108H[38;5;237m│[m[3;13H[38;5;237m│[m [38;5;103m1–3 of 3 · selected 1[m[72X[3;108H[38;5;237m│[m[4;13H[38;5;237m│[m [38;5;195;48;5;54;1m› p-project-notes-db.service[48X[4;91H[38;5;77;49;22mactive (running)[m [38;5;237m│[m[5;13H[38;5;237m│[m   [38;5;195mp-project-notes-web.service[47X[5;91H[38;5;77mactive (running)[m [38;5;237m│[m[6;13H[38;5;237m│[m   [38;5;195mp-project-notes-worker.service[44X[6;91H[38;5;77mactive (running)[m [38;5;237m│[m[7;13H[38;5;237m│[m[94X[7;108H[38;5;237m│[m[8;13H[38;5;237m│[m[94X[8;108H[38;5;237m│[m[9;13H[38;5;237m│[m[94X[9;108H[38;5;237m│[m[10;13H[38;5;237m│[m[94X[10;108H[38;5;237m│[m[11;13H[38;5;237m│[m[94X[11;108H[38;5;237m│[m[12;13H[38;5;237m│[m[94X[12;108H[38;5;237m│[m[13;13H[38;5;237m│[m[94X[13;108H[38;5;237m│[m[14;13H[38;5;237m│[m[94X[14;108H[38;5;237m│[m[15;13H[38;5;237m│[m[94X[15;108H[38;5;237m│[m[16;13H[38;5;237m│[m[94X[16;108H[38;5;237m│[m[17;13H[38;5;237m│[m[94X[17;108H[38;5;237m│[m[18;13H[38;5;237m│[m[94X[18;108H[38;5;237m│[m[19;13H[38;5;237m│[m[94X[19;108H[38;5;237m│[m[20;13H[38;5;237m│[m[94X[20;108H[38;5;237m│[m[21;13H[38;5;237m│[m[94X[21;108H[38;5;237m│[m[22;13H[38;5;237m│[m[94X[22;108H[38;5;237m│[m[23;13H[38;5;237m│[m[94X[23;108H[38;5;237m│[m[24;13H[38;5;237m╰──────────────────────────────────────────────────────────────────────────────────────────────╯[m[25;13H[38;5;103mEnter/J journal · s stop · r restart · q/Esc back[m[K[26;13H[38;5;195mSession: notes / main[m[K[27;13H[38;5;195mSession-user p-project-*.service units only.[m[K[28;13H[38;5;195mPorts are session-local; no host publication is added.[m[30;13H[38;5;195mNotes private PostgreSQL database[m[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[31;13H[38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[J[H [38;5;183;1mP · Sessions · waiting → running → other[m[K
+ [38;5;237m╭──────────────────────────────────────────────────────────────────────────╮[m [38;5;237m╭───────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[53X[3;77H[38;5;237m│[m [38;5;237m│[m [38;5;183;1mSession details[m[23X[23C[38;5;237m│[m
+ [38;5;237m│[m [38;5;103m1–3 of 3 · selected 1[m[52X[4;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mProject: notes[m                        [38;5;237m│[m
+ [38;5;237m│[m [38;5;195;48;5;54;1m› notes            ├─ main[30X[5;60H[38;5;77;49;22mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: main[m[14X[5;108H           [38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mnotes            └─ test-note-feature[17X[6;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mUUID:[m[21X[6;108H           [38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mp-ai[13X[7;23H└─ main[30X[7;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195m518a9a25-561d-4c57-900d-cb101ffda071[m  [38;5;237m│[m
+ [38;5;237m│[m[74X[8;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mRuntime: [38;5;77mrunning[m · Policy: [38;5;77mcurrent[m    [38;5;237m│[m
+ [38;5;237m│[m[74X[9;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mTerminals: unattended (0 attached)[m    [38;5;237m│[m
+ [38;5;237m│[m           [10;70H       [38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[11;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m├─ Agents [A] · latest report[m         [38;5;237m│[m
+ [38;5;237m│[m[74X[12;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m│  Activity unknown · no retained[m     [38;5;237m│[m
+ [38;5;237m│[m           [13;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mreport[m[32X[32C[38;5;237m│[m
+ [38;5;237m│[m           [14;72H     [38;5;237m│[m [38;5;237m│[m [38;5;195m│[m[37X[37C[38;5;237m│[m
+ [38;5;237m│[m[74X[15;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m└─ Project services [S] · 3 units[m     [38;5;237m│[m
+ [38;5;237m│[m[74X[16;77H[38;5;237m│[C│[m [38;5;195mobserved[m[30X[30C[38;5;237m│[m
+ [38;5;237m│[m[74X[17;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   p-project-notes-db.service[m         [38;5;237m│[m
+ [38;5;237m│[m[74X[18;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   [38;5;77mactive (running)[m[19X[19C[38;5;237m│[m
+ [38;5;237m│[m[74X[19;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   p-project-notes-web.service[m        [38;5;237m│[m
+ [38;5;237m│[m[74X[20;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   [38;5;77mactive (running)[m[19X[19C[38;5;237m│[m
+ [38;5;237m│[m[74X[21;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   p-project-notes-worker.service[m     [38;5;237m│[m
+ [38;5;237m│[m[74X[22;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   [38;5;77mactive (running)[m[19X[19C[38;5;237m│[m
+ [38;5;237m│[m           [23;70H       [38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[24;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mD complete details · A report · S all[m [38;5;237m│[m
+ [38;5;237m│[m[74X[25;77H[38;5;237m│[m [38;5;237m│[m [38;5;195munits[m[33X[33C[38;5;237m│[m
+ [38;5;237m│[m[74X[26;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[27;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[28;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m╰──────────────────────────────────────────────────────────────────────────╯[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mj/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create[m       [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mP project · / search · D details · A reports · S services · O operations[m     [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103m? help[m[71X[32;79H[38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mp policy · b branches · R rename · d discard · X delete · q/Esc back[m         [38;5;237m╰───────────────────────────────────────╯[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[11d[J[1;12H[1K [38;5;183;1mOperation / readiness[m[K[2;12H[1K [38;5;195mnotes / main[m[K[3;12H[1K [38;5;195mSession: 518a9a25-561d-4c57-900d-cb101ffda071[m[K[4;12H[1K [38;5;195mCondition: ready[m[K
+[K
+[K
+[K[8;12H[1K [38;5;195mLeaving startup prevents automatic entry when it finishes.[m[K[9;12H[1K [38;5;103mj/k/Pg scroll · r retry operation · q/Esc back[m[K[10;12H[1K [38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[K[>4m[<1u[35d[?25h[?2004l[2J[H[22;0;0t[?1h=[H[2J[?12l[?25h[?1000l[?1002l[?1003l[?1006l[?1005l[?2004h[?2031h[?996n(B[m[?12l[?25h[?1006l[?1000l[?1002l[?1003l[1;1H[1;35r[c[>c[>q]10;?\]11;?\[2;27H[?25l[H[K[32m[1m
+[p@p-session:/workspace]$(B[m[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[30m[42m
+[p] 0:bash*[70X[70C"p@p-session: /workspa" 20:55 01-Oct-26(B[m[?12l[?25h[2;27H[18t[14t(B[m[?12l[?25h[?1006l[?1000l[?1002l[?1003l[1;1H[1;35r[?25l[1;1H[K[32m[1m
+[p@p-session:/workspace]$(B[m[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[30m[42m
+[p] 0:bash*[70X[70C"p@p-session: /workspa" 20:55 01-Oct-26(B[m[?12l[?25h[2;27H]10;?\]11;?\[?7727h(B[m[?12l[?25h[?1006l[?1000l[?1002l[?1003l[1;1H[1;35r[?7727h(B[m[?12l[?25h[?1006l[?1000l[?1002l[?1003l[1;1H[1;35r[2;27H[?25l[H[K[32m[1m
+[p@p-session:/workspace]$(B[m[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[30m[42m
+[p] 0:bash*[70X[70C"p@p-session: /workspa" 20:55 01-Oct-26(B[m[?12l[?25h[2;27Hpython3 examples/notes/client.py health
+{"status": "ready", "database": "ready"}
+
+[32m[1m[p@p-session:/workspace]$(B[m [?25l[?12l[?25h[1;35r(B[m[?1l>[H[2J[?12l[?25h[?1000l[?1002l[?1003l[?1006l[?1005l[?2004l[?7727l[?1004l[23;0;0t[?2031l[detached (from session p)]
+[2J[H[?25l[?2004h[>4;2m[>1u[?5W[H[2J [38;5;183;1mP · Sessions · waiting → running → other[m
+ [38;5;237m╭──────────────────────────────────────────────────────────────────────────╮[m [38;5;237m╭───────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[53X[3;77H[38;5;237m│[m [38;5;237m│[m [38;5;183;1mSession details[m[23X[23C[38;5;237m│[m
+ [38;5;237m│[m [38;5;103m1–3 of 3 · selected 1[m[52X[4;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mProject: notes[m[24X[24C[38;5;237m│[m
+ [38;5;237m│[m [38;5;195;48;5;54;1m› notes            ├─ main[30X[5;60H[38;5;77;49;22mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: main[m[26X[26C[38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mnotes            └─ test-note-feature[17X[6;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mUUID:[m[33X[33C[38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mp-ai[13X[7;23H└─ main[30X[7;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195m518a9a25-561d-4c57-900d-cb101ffda071[m  [38;5;237m│[m
+ [38;5;237m│[m[74X[8;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mRuntime: [38;5;77mrunning[m · Policy: [38;5;77mcurrent[m    [38;5;237m│[m
+ [38;5;237m│[m[74X[9;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mTerminals: unattended (0 attached)[m    [38;5;237m│[m
+ [38;5;237m│[m[74X[10;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[11;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m├─ Agents [A] · latest report[m         [38;5;237m│[m
+ [38;5;237m│[m[74X[12;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m│  Activity unknown · no retained[m     [38;5;237m│[m
+ [38;5;237m│[m[74X[13;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mreport[m[32X[32C[38;5;237m│[m
+ [38;5;237m│[m[74X[14;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m│[m[37X[37C[38;5;237m│[m
+ [38;5;237m│[m[74X[15;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m└─ Project services [S] · 3 units[m     [38;5;237m│[m
+ [38;5;237m│[m[74X[16;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mobserved[m[30X[30C[38;5;237m│[m
+ [38;5;237m│[m[74X[17;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   p-project-notes-db.service[m         [38;5;237m│[m
+ [38;5;237m│[m[74X[18;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   [38;5;77mactive (running)[m[19X[19C[38;5;237m│[m
+ [38;5;237m│[m[74X[19;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   p-project-notes-web.service[m        [38;5;237m│[m
+ [38;5;237m│[m[74X[20;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   [38;5;77mactive (running)[m[19X[19C[38;5;237m│[m
+ [38;5;237m│[m[74X[21;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   p-project-notes-worker.service[m     [38;5;237m│[m
+ [38;5;237m│[m[74X[22;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m   [38;5;77mactive (running)[m[19X[19C[38;5;237m│[m
+ [38;5;237m│[m[74X[23;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[24;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mD complete details · A report · S all[m [38;5;237m│[m
+ [38;5;237m│[m[74X[25;77H[38;5;237m│[m [38;5;237m│[m [38;5;195munits[m[33X[33C[38;5;237m│[m
+ [38;5;237m│[m[74X[26;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[27;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[28;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m╰──────────────────────────────────────────────────────────────────────────╯[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mj/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create[m       [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mP project · / search · D details · A reports · S services · O operations[m     [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103m? help[m[71X[32;79H[38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mp policy · b branches · R rename · d discard · X delete · q/Esc back[m         [38;5;237m╰───────────────────────────────────────╯[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [11d[J[1;12H[1K [38;5;183;1mOperation / readiness[m[K[2;12H[1K [38;5;195mnotes / main[m[K[3;12H[1K [38;5;195mSession: 518a9a25-561d-4c57-900d-cb101ffda071[m[K[4;12H[1K [38;5;195mCondition: ready[m[K
+[K
+[K
+[K[8;12H[1K [38;5;195mLeaving startup prevents automatic entry when it finishes.[m[K[9;12H[1K [38;5;103mj/k/Pg scroll · r retry operation · q/Esc back[m[K[10;12H[1K [38;5;103mWaiting for daemon… (Back leaves accepted work running)[m[K[>4m[<1u[35d[?25h[?2004l[2J[H[22;0;0t[?1h=[H[2J[?12l[?25h[?1000l[?1002l[?1003l[?1006l[?1005l[?2004h[?2031h[?996n(B[m[?12l[?25h[?1006l[?1000l[?1002l[?1003l[1;1H[1;35r[c[>c[>q]10;?\]11;?\[5;27H[?25l[H[K[32m[1m
+[p@p-session:/workspace]$(B[m python3 examples/notes/client.py health[K
+{"status": "ready", "database": "ready"}[K
+[K[32m[1m
+[p@p-session:/workspace]$(B[m[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[30m[42m
+[p] 0:bash*[70X[70C"p@p-session: /workspa" 20:55 01-Oct-26(B[m[?12l[?25h[5;27H[18t[14t(B[m[?12l[?25h[?1006l[?1000l[?1002l[?1003l[1;1H[1;35r[5;27H[?25l[H[K[32m[1m
+[p@p-session:/workspace]$(B[m python3 examples/notes/client.py health[K
+{"status": "ready", "database": "ready"}[K
+[K[32m[1m
+[p@p-session:/workspace]$(B[m[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[30m[42m
+[p] 0:bash*[70X[70C"p@p-session: /workspa" 20:55 01-Oct-26(B[m[?12l[?25h[5;27H]10;?\]11;?\[?7727h(B[m[?12l[?25h[?1006l[?1000l[?1002l[?1003l[1;1H[1;35r[?7727h(B[m[?12l[?25h[?1006l[?1000l[?1002l[?1003l[1;1H[1;35r[5;27H[?25l[H[K[32m[1m
+[p@p-session:/workspace]$(B[m python3 examples/notes/client.py health[K
+{"status": "ready", "database": "ready"}[K
+[K[32m[1m
+[p@p-session:/workspace]$(B[m[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K
+[K[30m[42m
+[p] 0:bash*[70X[70C"p@p-session: /workspa" 20:56 01-Oct-26(B[m[?12l[?25h[5;27H[1;35r(B[m[?1l>[H[2J[?12l[?25h[?1000l[?1002l[?1003l[?1006l[?1005l[?2004l[?7727l[?1004l[23;0;0t[?2031l[detached (from session p)]
+[2J[H[?25l[?2004h[>4;2m[>1u[?5W[H[2J [38;5;183;1mP · Sessions · waiting → running → other[m
+ [38;5;237m╭──────────────────────────────────────────────────────────────────────────╮[m [38;5;237m╭───────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[53X[3;77H[38;5;237m│[m [38;5;237m│[m [38;5;183;1mSession details[m[23X[23C[38;5;237m│[m
+ [38;5;237m│[m [38;5;103m1–3 of 3 · selected 1[m[52X[4;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mProject: notes[m[24X[24C[38;5;237m│[m
+ [38;5;237m│[m [38;5;195;48;5;54;1m› notes            ├─ main[30X[5;60H[38;5;77;49;22mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mBranch: main[m[26X[26C[38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mnotes            └─ test-note-feature[17X[6;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195mUUID:[m[33X[33C[38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mp-ai[13X[7;23H└─ main[30X[7;60H[38;5;77mrunning[m          [38;5;237m│[m [38;5;237m│[m [38;5;195m518a9a25-561d-4c57-900d-cb101ffda071[m  [38;5;237m│[m
+ [38;5;237m│[m[74X[8;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mRuntime: [38;5;77mrunning[m · Policy: [38;5;77mcurrent[m    [38;5;237m│[m
+ [38;5;237m│[m[74X[9;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mTerminals: unattended (0 attached)[m    [38;5;237m│[m
+ [38;5;237m│[m[74X[10;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[11;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m├─ Agents [A] · latest report[m         [38;5;237m│[m
+ [38;5;237m│[m[74X[12;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m│  Activity unknown · no retained[m     [38;5;237m│[m
+ [38;5;237m│[m[74X[13;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mreport[m[32X[32C[38;5;237m│[m
+ [38;5;237m│[m[74X[14;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m│[m[37X[37C[38;5;237m│[m
+ [38;5;237m│[m[74X[15;77H[38;5;237m│[m [38;5;237m│[m [38;5;195m└─ Project services [S] · loading…[m    [38;5;237m│[m
+ [38;5;237m│[m[74X[16;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[17;77H[38;5;237m│[m [38;5;237m│[m [38;5;195mD complete details · A report · S all[m [38;5;237m│[m
+ [38;5;237m│[m[74X[18;77H[38;5;237m│[m [38;5;237m│[m [38;5;195munits[m[33X[33C[38;5;237m│[m
+ [38;5;237m│[m[74X[19;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[20;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[21;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[22;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[23;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[24;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[25;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[26;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[27;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m│[m[74X[28;77H[38;5;237m│[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;237m╰──────────────────────────────────────────────────────────────────────────╯[m [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mj/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create[m       [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mP project · / search · D details · A reports · S services · O operations[m     [38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103m? help[m[71X[32;79H[38;5;237m│[m[39X[39C[38;5;237m│[m
+ [38;5;103mp policy · b branches · R rename · d discard · X delete · q/Esc back[m         [38;5;237m╰───────────────────────────────────────╯[m[15;107H[38;5;195m3 units[m [16;81H[38;5;195mobserved[m[17;81H[38;5;195m   p-project-notes-db.service[m        [18;81H[38;5;195m   [38;5;77mactive (running)[m[19;81H[38;5;195m   p-project-notes-web.service[m[20;81H[38;5;195m   [38;5;77mactive (running)[m[21;81H[38;5;195m   p-project-notes-worker.service[m[22;81H[38;5;195m   [38;5;77mactive (running)[m[24;81H[38;5;195mD complete details · A report · S all[m[25;81H[38;5;195munits[m[15;107H[38;5;195mloading…[m[16;81H        [17;81H[38;5;195mD complete details · A report · S all[m[18;81H[38;5;195munits[m[14X
+[Z[30X
+[19X
+[33X
+[19X
+
+[37X
+     [>4m[<1u[35d[?25h[?2004l[?1049l[?2004h
+[1;32m[]0;pdev@p-vm: ~pdev@p-vm:~]$[0m stty rows 24 cols 80; p tui
+[?2004l[?1049h[?2026$p[?2027$p]11;?[>4m[2J[H[?25l[?5W[?2004h[>4;2m[>1u[?u[H[2J [38;5;183;1mP · Sessions · waiting → running → other[m
+ [38;5;237m╭────────────────────────────────────────────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[55X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;103m0–0 of 0 · selected 0[m[54X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;103mNo matching entries[m[56X[79G[38;5;237m│[m
+ [38;5;237m│[m[76X[79G[38;5;237m│[m
+ [38;5;237m│[m[76X[79G[38;5;237m│[m
+ [38;5;237m╰────────────────────────────────────────────────────────────────────────────╯[m
+ [38;5;103mj/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create[m
+ [38;5;103mP project · / search · D details · A reports · S services · O operations[m
+ [38;5;103m? help[m
+ [38;5;103mp policy · b branches · R rename · d discard · X delete · q/Esc back[m
+ [38;5;237m╭────────────────────────────────────────────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mSession details[m[60X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195mSelect a session to inspect its real state.[m[32X[79G[38;5;237m│[m
+ [38;5;237m│[m[76X[79G[38;5;237m│[m
+ [38;5;237m│[m[76X[79G[38;5;237m│[m
+ [38;5;237m│[m[76X[79G[38;5;237m│[m
+ [38;5;237m│[m[76X[79G[38;5;237m│[m
+ [38;5;237m│[m[76X[79G[38;5;237m│[m
+ [38;5;237m│[m[76X[79G[38;5;237m│[m
+ [38;5;237m╰────────────────────────────────────────────────────────────────────────────╯[m[4;4H[38;5;103m1–3 of 3 · selected 1[m
+[4G[38;5;195;48;5;54;1m› notes[13X[5;24H├─ main[31X[5;62H[38;5;77;49;22mrunning[m
+[6G[38;5;195mnotes[13X[6;24H└─ test-note-feature[18X[6;62H[38;5;77mrunning[m
+[6G[38;5;195mp-ai[14X[7;24H└─ main[31X[7;62H[38;5;77mrunning[m[15;4H[38;5;195mnotes / main[m[31X
+[4G[38;5;195mUUID: 518a9a25-561d-4c57-900d-cb101ffda071[m
+[4G[38;5;195mRuntime: [38;5;77mrunning[m · Policy: [38;5;77mcurrent[m · Terminals: unattended
+[4G[38;5;195m├─ Agents [A] · latest: unknown · no retained report[m
+[4G[38;5;195m└─ Project services [S]: loading…[m
+[4G[38;5;195mD complete details · A report provenance · S all units[m[19;29H[38;5;195m3 units observed[m
+[4G[38;5;195m   p-project-notes-db.service[m[25X
+[4G[38;5;195m   [38;5;77mactive (running)[m[19;29H[38;5;195mloading…[m        
+[4G[38;5;195mD complete details · A report provenance · S all units[m
+[4G[19X[19;29H[38;5;195m3 units observed[m
+[4G[38;5;195m   p-project-notes-db.service[m[25X
+[4G[38;5;195m   [38;5;77mactive (running)[m[19;29H[38;5;195mloading…[m        
+[4G[38;5;195mD complete details · A report provenance · S all units[m
+[4G[19X[19;29H[38;5;195m3 units observed[m
+[4G[38;5;195m   p-project-notes-db.service[m[25X
+[4G[38;5;195m   [38;5;77mactive (running)[m[2A[J[H[38;5;183;1mSession details[m[K
+[38;5;195mProject: notes[m[K
+[38;5;195mBranch: main[m[K
+[38;5;195mUUID: 518a9a25-561d-4c57-900d-cb101ffda071[m[K
+[38;5;195mRuntime: [38;5;77mrunning[m[K
+[38;5;195mPolicy: [38;5;77mcurrent[m[K
+[38;5;195mTerminals: unattended (0 attached)[m[K
+[K
+[38;5;195mAgents [A] · latest unattended report[m[K
+[38;5;195mActivity unknown · no retained report[m[K
+[K
+[38;5;195mProject services [S]: 3 units observed[m[K
+[38;5;195mp-project-notes-db.service · [38;5;77mactive (running)[m[K
+[38;5;195mNotes private PostgreSQL database[m[K
+[38;5;195mp-project-notes-web.service · [38;5;77mactive (running)[m[K
+[38;5;195mNotes HTTP web application[m[K
+[38;5;195mp-project-notes-worker.service · [38;5;77mactive (running)[m[K
+[38;5;103mj/k/Pg scroll · A reports · S services · p policy · q/Esc back[m[K[4A[2M[12;23H[38;5;195mloading…[m[K
+[K
+[38;5;195mPolicy digest:[m[K
+[38;5;195ma85696eba8be72b6ca5ae028834ead1393954039c74cb6f122d718986a4faea6[m[2L[12;23H[38;5;195m3 units observed[m
+[38;5;195mp-project-notes-db.service · [38;5;77mactive (running)[m
+[38;5;195mNotes private PostgreSQL database[m
+[38;5;195mp-project-notes-web.service · [38;5;77mactive (running)[m
+[38;5;195mNotes HTTP web application[m
+[38;5;195mp-project-notes-worker.service · [38;5;77mactive (running)[m[K[3A[2M[12;23H[38;5;195mloading…[m[K
+[K
+[38;5;195mPolicy digest:[m[K
+[38;5;195ma85696eba8be72b6ca5ae028834ead1393954039c74cb6f122d718986a4faea6[m[2L[12;23H[38;5;195m3 units observed[m
+[38;5;195mp-project-notes-db.service · [38;5;77mactive (running)[m
+[38;5;195mNotes private PostgreSQL database[m
+[38;5;195mp-project-notes-web.service · [38;5;77mactive (running)[m
+[38;5;195mNotes HTTP web application[m
+[38;5;195mp-project-notes-worker.service · [38;5;77mactive (running)[m[K[3A[2M[12;23H[38;5;195mloading…[m[K
+[K
+[38;5;195mPolicy digest:[m[K
+[38;5;195ma85696eba8be72b6ca5ae028834ead1393954039c74cb6f122d718986a4faea6[m[2L[12;23H[38;5;195m3 units observed[m
+[38;5;195mp-project-notes-db.service · [38;5;77mactive (running)[m
+[38;5;195mNotes private PostgreSQL database[m
+[38;5;195mp-project-notes-web.service · [38;5;77mactive (running)[m
+[38;5;195mNotes HTTP web application[m
+[38;5;195mp-project-notes-worker.service · [38;5;77mactive (running)[m[K[H [38;5;183;1mP · Sessions · waiting → running → other[m
+ [38;5;237m╭────────────────────────────────────────────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[55X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;103m1–3 of 3 · selected 1[m[54X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195;48;5;54;1m› notes[13X[5;24H├─ main[31X[5;62H[38;5;77;49;22mrunning[m          [38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mnotes[13X[6;24H└─ test-note-feature[18X[6;62H[38;5;77mrunning[m          [38;5;237m│[m
+ [38;5;237m│[m   [38;5;195mp-ai[14X[7;24H└─ main[31X[7;62H[38;5;77mrunning[m          [38;5;237m│[m
+ [38;5;237m╰────────────────────────────────────────────────────────────────────────────╯[m
+ [38;5;103mj/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create[m
+ [38;5;103mP project · / search · D details · A reports · S services · O operations[m
+ [38;5;103m? help[m
+ [38;5;103mp policy · b branches · R rename · d discard · X delete · q/Esc back[m
+ [38;5;237m╭────────────────────────────────────────────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mSession details[m[60X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195mnotes / main[m[63X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195mUUID: 518a9a25-561d-4c57-900d-cb101ffda071[m[33X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195mRuntime: [38;5;77mrunning[m · Policy: [38;5;77mcurrent[m · Terminals: unattended[17X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195m├─ Agents [A] · latest: unknown · no retained report[m[23X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195m└─ Project services [S]: 3 units observed[m[34X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195m   p-project-notes-db.service[m[46X[79G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195m   [38;5;77mactive (running)[m[56X[79G[38;5;237m│[m
+ [38;5;237m╰────────────────────────────────────────────────────────────────────────────╯[m[19;29H[38;5;195mloading…[m        
+[4G[38;5;195mD complete details · A report provenance · S all units[m
+[4G[19X[19;29H[38;5;195m3 units observed[m
+[4G[38;5;195m   p-project-notes-db.service[m[25X
+[4G[38;5;195m   [38;5;77mactive (running)[m[>4m[<1u
+
+
+[?25h[?2004l[?1049l[?2004h
+[1;32m[]0;pdev@p-vm: ~pdev@p-vm:~]$[0m stty rows 16 cols 48; p tui
+[?2004l[?1049h[?2026$p[?2027$p]11;?[>4m[2J[H[?25l[?5W[?2004h[>4;2m[>1u[?u[H[2J [38;5;183;1mP · Sessions · waiting → running → other[m
+ [38;5;237m╭────────────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[23X[47G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195m0–0 of 0 · selected 0[m[22X[47G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195mNo matching sessions[m[23X[47G[38;5;237m│[m
+ [38;5;237m│[m[44X[47G[38;5;237m│[m
+ [38;5;237m│[m[44X[47G[38;5;237m│[m
+ [38;5;237m│[m[44X[47G[38;5;237m│[m
+ [38;5;237m╰────────────────────────────────────────────╯[m
+ [38;5;103mj/k · PgUp/PgDn page · Enter open · gg/G ends[m
+ [38;5;103ms stop · c create · P project · / search[m
+ [38;5;103mD details · A reports · S services · ? help[m
+ [38;5;103mO operations · p policy · b branches[m
+ [38;5;103mR rename · d discard · X delete · q/Esc back[m[4;4H[38;5;195m1–1 of 3 · selected 1[m
+[4G[38;5;195mnotes / main[m        
+[4G[38;5;77mrunning[m · Policy [38;5;77mcurrent[m · unattended
+[4G[38;5;195mAgents [A] · latest: unknown · no retaine…[m
+[4G[38;5;195mProject services [S]: loading…[m[8;26H[38;5;195m3 units observed[m[8;26H[38;5;195mloading…[m        [8;26H[38;5;195m3 units observed[m[8;26H[38;5;195mloading…[m        [8;26H[38;5;195m3 units observed[m[4B[J[H[38;5;183;1mSession details[m[K
+[38;5;195mProject: notes[m[K
+[38;5;195mBranch: main[m[K
+[38;5;195mUUID: 518a9a25-561d-4c57-900d-cb101ffda071[m[K
+[38;5;195mRuntime: [38;5;77mrunning[m[K
+[38;5;195mPolicy: [38;5;77mcurrent[m[K
+[38;5;195mTerminals: unattended (0 attached)[m[K
+[K
+[38;5;195mAgents [A] · latest unattended report[m[K
+[38;5;103mj/k/Pg scroll · A reports · S services[m[K
+[38;5;103mp policy · q/Esc back[m[K[H
+[38;5;195mActivity unknown · no retained report[m
+[K
+[38;5;195mProject services [S]: 3 units observed[m[K
+[38;5;195mp-project-notes-db.service · active[m
+[38;5;195m(running)[m[K
+[38;5;195mNotes private PostgreSQL database[m[K
+[38;5;195mp-project-notes-web.service · active[m
+[38;5;195m(running)[m[K[2;5r[2;1HM[1;16r[2;1H[38;5;195mAgents [A] · latest unattended report[m[5;23H[38;5;195mloading…[m[K
+[K
+[38;5;195mPolicy digest:[m[K
+[38;5;195ma85696eba8be72b6ca5ae028834ead1393954039c74c[m
+[38;5;195mb6f122d718986a4faea6[m[2;6r[6;1H
+[1;16r[4;23H[38;5;195m3 units observed[m
+[38;5;195mp-project-notes-db.service · active[m
+[38;5;195m(running)[m
+[38;5;195mNotes private PostgreSQL database[m
+[38;5;195mp-project-notes-web.service · active[m[K
+[38;5;195m(running)[m[K[2;5r[2;1HM[1;16r[2;1H[38;5;195mAgents [A] · latest unattended report[m[5;23H[38;5;195mloading…[m[K
+[K
+[38;5;195mPolicy digest:[m[K
+[38;5;195ma85696eba8be72b6ca5ae028834ead1393954039c74c[m
+[38;5;195mb6f122d718986a4faea6[m[2;6r[6;1H
+[1;16r[4;23H[38;5;195m3 units observed[m
+[38;5;195mp-project-notes-db.service · active[m
+[38;5;195m(running)[m
+[38;5;195mNotes private PostgreSQL database[m
+[38;5;195mp-project-notes-web.service · active[m[K
+[38;5;195m(running)[m[K[2;5r[2;1HM[1;16r[2;1H[38;5;195mAgents [A] · latest unattended report[m[5;23H[38;5;195mloading…[m[K
+[K
+[38;5;195mPolicy digest:[m[K
+[38;5;195ma85696eba8be72b6ca5ae028834ead1393954039c74c[m
+[38;5;195mb6f122d718986a4faea6[m[2;6r[6;1H
+[1;16r[4;23H[38;5;195m3 units observed[m
+[38;5;195mp-project-notes-db.service · active[m
+[38;5;195m(running)[m
+[38;5;195mNotes private PostgreSQL database[m
+[38;5;195mp-project-notes-web.service · active[m[K
+[38;5;195m(running)[m[K[H [38;5;183;1mP · Sessions · waiting → running → other[m
+ [38;5;237m╭────────────────────────────────────────────╮[m
+ [38;5;237m│[m [38;5;183;1mAll project sessions[m[23X[47G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195m1–1 of 3 · selected 1[m[22X[47G[38;5;237m│[m
+ [38;5;237m│[m [38;5;195mnotes / main[m[31X[47G[38;5;237m│[m
+ [38;5;237m│[m [38;5;77mrunning[m · Policy [38;5;77mcurrent[m · unattended      [38;5;237m│[m
+ [38;5;237m│[m [38;5;195mAgents [A] · latest: unknown · no retaine…[m [38;5;237m│[m
+ [38;5;237m│[m [38;5;195mProject services [S]: 3 units observed[m     [38;5;237m│[m
+ [38;5;237m╰────────────────────────────────────────────╯[m
+ [38;5;103mj/k · PgUp/PgDn page · Enter open · gg/G ends[m
+ [38;5;103ms stop · c create · P project · / search[m
+ [38;5;103mD details · A reports · S services · ? help[m
+ [38;5;103mO operations · p policy · b branches[m
+ [38;5;103mR rename · d discard · X delete · q/Esc back[m[8;26H[38;5;195mloading…[m        [8;26H[38;5;195m3 units observed[m[>4m[<1u[8B[?25h[?2004l[?1049l[?2004h
+[1;32m[]0;pdev@p-vm: ~pdev@p-vm:~]$[0m p-demo-poweroff
+[?2004l
+Broadcast message from root@p-vm on pts/0 (Thu 2026-10-01 20:58:29 UTC):
+
+The system will power off now!
+
+[?2004h
+[1;32m[]0;pdev@p-vm: ~pdev@p-vm:~]$[0m          Stopping [0;1;39mSessi         Stopping [0;1;39mSession 5 of User pdev[0m...
+[[0;32m  OK  [0m] Removed slice [0;1;39mSlice /system/modprobe[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mMulti-User System[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mLogin Prompts[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mVirtual Machines and Containers[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mHost and Network Name Lookups[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mTimer Units[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDiscard unused filesystem blocks once a week[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mlogrotate.timer[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDaily Cleanup of Temporary Directories[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mLoad/Save RF Kill Switch Status /dev/rfkill Watch[0m.
+         Mounting [0;1;39m/run/initramfs[0m...
+         Stopping [0;1;39mGetty on tty1[0m...
+         Stopping [0;1;39mIncus Instances Startup/Shutdown[0m...
+         Stopping [0;1;39mIncus Container and Virtual Machine Management User Daemon[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mLogrotate configuration check[0m.
+         Stopping [0;1;39mP fixed DNS-over-HTTPS resolver[0m...
+[  545.524183] dnscrypt-proxy[691]: [2026-10-01 20:58:29] [NOTICE] Stopped.
+[[0;32m  OK  [0m] Stopped [0;1;39mSeed the notes project and its three session-user services[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mSeed the local-only P repository and main session[0m.
+         Stopping [0;1;39mP public lab daemon (confined Incus owner)[0m...
+         Stopping [0;1;39mPost-Boot Actions[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mReset console on configuration changes[0m.
+         Stopping [0;1;39mSerial Getty on ttyS0[0m...
+         Stopping [0;1;39mLoad/Save OS Random Seed[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mGetty on tty1[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mSerial Getty on ttyS0[0m.
+[!p]104\[0m[?7h[1G[0J7[32766;32766H[6n8]3008;end=bc6b1dbb5c5b48f48fd1786af8d191e1\[[0;32m  OK  [0m] Stopped [0;1;39mP fixed DNS-over-HTTPS resolver[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mIncus Container and Virtual Machine Management User Daemon[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mP public lab daemon (confined Incus owner)[0m.
+[[0;32m  OK  [0m] Mounted [0;1;39m/run/initramfs[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mPost-Boot Actions[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mSession 4 of User pdev[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mSession 5 of User pdev[0m.
+[[0;32m  OK  [0m] Removed slice [0;1;39mSlice /system/getty[0m.
+[[0;32m  OK  [0m] Removed slice [0;1;39mSlice /system/serial-getty[0m.
+         Starting [0;1;39mGenerate shutdown ramfs[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mPrepare the confined Incus lab and pinned fixture image[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mIncus initialization with preseed file[0m.
+         Stopping [0;1;39mPermit User Sessions[0m...
+         Stopping [0;1;39mUser Manager for UID 1000[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mLoad/Save OS Random Seed[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mPermit User Sessions[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mRemote File Systems[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mUser Manager for UID 1000[0m.
+         Stopping [0;1;39mUserspace Out-Of-Memory (OOM) Killer[0m...
+         Stopping [0;1;39mUser Runtime Directory /run/user/1000[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mUserspace Out-Of-Memory (OOM) Killer[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/run/user/1000[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mUser Runtime Directory /run/user/1000[0m.
+[[0;32m  OK  [0m] Removed slice [0;1;39mSlice /user/1000[0m.
+         Stopping [0;1;39mUser Login Management[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mUser Login Management[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mUser and Group Name Lookups[0m.
+         Stopping [0;1;39mName Service Cache Daemon (nsncd)[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mName Service Cache Daemon (nsncd)[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mGenerate shutdown ramfs[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/incus/storage-pools/builders[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/incus/devices[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/incus/guestapi[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/incus/shmounts[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mIncus Instances Startup/Shutdown[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mIncus Container and Virtual Machine Management Daemon[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mNetwork is Online[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mNetwork[0m.
+         Stopping [0;1;39mDHCP Client[0m...
+         Stopping [0;1;39mFUSE filesystem for LXC[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mExtra networking commands.[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPreparation for Network[0m.
+         Stopping [0;1;39mnftables firewall[0m...
+[[0;32m  OK  [0m] Unmounted [0;1;39m/var/lib/lxcfs[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDHCP Client[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mresolvconf update[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mFUSE filesystem for LXC[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mBasic System[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPath Units[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSlice Units[0m.
+[[0;32m  OK  [0m] Removed slice [0;1;39mUser and Session Slice[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSocket Units[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mIncus user UNIX socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mIncus UNIX socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mNix Daemon Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mHostname Service Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mDisk Image Download Service Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mVirtual Machine and Container Registration Service Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mConsole Output Muting Service Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mUserspace Out-Of-Memory (OOM) Killer Socket[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mDisk Repartitioning Service Socket[0m.
+         Stopping [0;1;39mD-Bus System Message Bus[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mnftables firewall[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mD-Bus System Message Bus[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mD-Bus System Message Bus Socket[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSystem Initialization[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mLocal Encrypted Volumes[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mDispatch Password Requests to Console Directory Watch[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mForward Password Requests to Wall Directory Watch[0m.
+         Stopping [0;1;39mLoad AppArmor policies[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mregister-nix-paths.service[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mApply Kernel Variables[0m.
+[[0;32m  OK  [0m] Closed [0;1;39mProcess Core Dump Socket[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mLoad Kernel Modules[0m.
+         Stopping [0;1;39mRecord System Boot/Shutdown in UTMP[0m...
+[[0;32m  OK  [0m] Stopped [0;1;39mRecord System Boot/Shutdown in UTMP[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate System Files and Directories[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mLoad AppArmor policies[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mLocal File Systems[0m.
+         Unmounting [0;1;39m/run/keys[0m...
+         Unmounting [0;1;39m/run/wrappers[0m...
+[[0;32m  OK  [0m] Unmounted [0;1;39m/run/keys[0m.
+[[0;32m  OK  [0m] Unmounted [0;1;39m/run/wrappers[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mPreparation for Local File Systems[0m.
+[[0;32m  OK  [0m] Stopped target [0;1;39mSwaps[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mUnmount All Filesystems[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mRemount Root and Kernel File Systems[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mFile System Check on Root Device[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Static Device Nodes in /dev[0m.
+[[0;32m  OK  [0m] Stopped [0;1;39mCreate Static Device Nodes in /dev gracefully[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSystem Shutdown[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mLate Shutdown Services[0m.
+[[0;32m  OK  [0m] Finished [0;1;39mSystem Power Off[0m.
+[[0;32m  OK  [0m] Reached target [0;1;39mSystem Power Off[0m.
+]3008;end=84011734f6d541f496806218c3dc7021\[18t7[32766;32766H[6n8[!p]104\[0m[?7h[1G[0J[  548.232632] reboot: Power down

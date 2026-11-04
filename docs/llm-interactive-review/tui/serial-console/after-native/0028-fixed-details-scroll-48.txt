@@ -1,0 +1,16 @@
+Session details                                 
+Activity unknown · no retained report           
+                                                
+Project services [S]: 3 units observed          
+p-project-notes-db.service · active             
+(running)                                       
+Notes private PostgreSQL database               
+p-project-notes-web.service · active            
+(running)                                       
+j/k/Pg scroll · A reports · S services          
+p policy · q/Esc back                           
+                                                
+                                                
+                                                
+                                                
+                                                

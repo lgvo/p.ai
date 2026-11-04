@@ -1,0 +1,11 @@
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "/tmp/p-screen-before-native/0001-start", "timestamp": 1790887303.9802823, "bytes": 0}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "/tmp/p-screen-before-native/0002-close", "timestamp": 1790887555.0344543, "bytes": 0}
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "/tmp/p-screen-before-native/0001-start", "timestamp": 1790887555.4239538, "bytes": 290}
+{"op": "observe", "label": "guest-before-ready", "wait": 2.0, "frame": "/tmp/p-screen-before-native/0002-guest-before-ready", "timestamp": 1790887579.0488718, "bytes": 24057}
+{"op": "send", "label": "broken-native-before", "wait": 2.0, "text": "export TERM=xterm-256color; stty rows 35 cols 120; p tui\\n", "hex": null, "frame": "/tmp/p-screen-before-native/0003-broken-native-before", "timestamp": 1790887594.1171849, "bytes": 24115}
+{"op": "send", "label": "broken-native-before", "wait": 2.0, "text": null, "hex": "156578706f7274205445524d3d787465726d2d323536636f6c6f723b207374747920726f777320333520636f6c73203132303b2070207475690a", "frame": "/tmp/p-screen-before-native/0004-broken-native-before", "timestamp": 1790887628.4181237, "bytes": 29874}
+{"op": "send", "label": "broken-selection-before", "wait": 0.2, "text": "j", "hex": null, "frame": "/tmp/p-screen-before-native/0005-broken-selection-before", "timestamp": 1790887656.463536, "bytes": 33015}
+{"op": "send", "label": "before-browser-exit", "wait": 0.2, "text": "q", "hex": null, "frame": "/tmp/p-screen-before-native/0006-before-browser-exit", "timestamp": 1790887660.5211306, "bytes": 33290}
+{"op": "send", "label": "before-poweroff", "wait": 2.0, "text": null, "hex": "702d64656d6f2d706f7765726f66660a", "frame": "/tmp/p-screen-before-native/0007-before-poweroff", "timestamp": 1790887667.7616208, "bytes": 37777}
+{"op": "observe", "label": "before-stopped", "wait": 1.0, "frame": "/tmp/p-screen-before-native/0008-before-stopped", "timestamp": 1790887713.2107408, "bytes": 42783}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "/tmp/p-screen-before-native/0009-close", "timestamp": 1790888342.2676978, "bytes": 42783}

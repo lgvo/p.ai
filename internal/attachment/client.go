@@ -1,0 +1,152 @@
+package attachment
+
+import (
+	"context"
+	"errors"
+	"io"
+	"net"
+	"os"
+	"os/exec"
+	"os/signal"
+	"syscall"
+	"time"
+
+	"github.com/charmbracelet/x/term"
+	"github.com/lgvo/p.ai/internal/api"
+	"golang.org/x/sys/unix"
+)
+
+// Client carries a pending attachment that session.attach granted on the
+// control socket: it transfers the token to the attachment helper on an
+// inherited private socket, and carries terminal bytes. It has no runtime
+// authority.
+func Client(ctx context.Context, socket string, pending api.PendingAttachment) error {
+	if len(pending.Token) != 64 || !time.Now().Before(pending.ExpiresAt) {
+		return errors.New("invalid pending attachment")
+	}
+	pair, err := unix.Socketpair(unix.AF_UNIX, unix.SOCK_STREAM|unix.SOCK_CLOEXEC, 0)
+	if err != nil {
+		return err
+	}
+	parentFile := os.NewFile(uintptr(pair[0]), "attachment-client")
+	helperFile := os.NewFile(uintptr(pair[1]), "attachment-helper")
+	defer helperFile.Close()
+	conn, err := net.FileConn(parentFile)
+	parentFile.Close()
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	c := api.NewFrameConn(conn, nil)
+	executable, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(executable, "attach-helper")
+	cmd.ExtraFiles = []*os.File{helperFile}
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
+	if err = cmd.Start(); err != nil {
+		return err
+	}
+	helperFile.Close()
+	childDone := make(chan error, 1)
+	go func() { childDone <- cmd.Wait() }()
+	width, height := 80, 24
+	if term.IsTerminal(os.Stdin.Fd()) {
+		if w, h, e := term.GetSize(os.Stdin.Fd()); e == nil {
+			width, height = attachmentSize(w, h)
+		}
+		old, e := term.MakeRaw(os.Stdin.Fd())
+		if e != nil {
+			return e
+		}
+		defer term.Restore(os.Stdin.Fd(), old)
+	}
+	if err = c.WriteJSON(api.FrameInit, initiation{Socket: socket, Token: pending.Token, Width: width, Height: height}); err != nil {
+		return err
+	}
+	inputDone := make(chan error, 1)
+	go func() {
+		buffer := make([]byte, 16384)
+		for {
+			n, e := os.Stdin.Read(buffer)
+			if n > 0 {
+				if w := c.WriteFrame(api.FrameInput, buffer[:n]); w != nil {
+					inputDone <- w
+					return
+				}
+			}
+			if e != nil {
+				inputDone <- e
+				return
+			}
+		}
+	}()
+	outputDone := make(chan error, 1)
+	go func() {
+		for {
+			frame, e := c.ReadFrame()
+			if e != nil {
+				outputDone <- e
+				return
+			}
+			switch frame.Kind {
+			case api.FrameReady:
+			case api.FrameOutput:
+				if _, e = os.Stdout.Write(frame.Data); e != nil {
+					outputDone <- e
+					return
+				}
+			case api.FrameError:
+				outputDone <- errors.New(string(frame.Data))
+				return
+			default:
+				outputDone <- errors.New("invalid helper carrier frame")
+				return
+			}
+		}
+	}()
+	resize := make(chan os.Signal, 1)
+	signal.Notify(resize, syscall.SIGWINCH)
+	defer signal.Stop(resize)
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case e := <-childDone:
+			if e != nil {
+				return e
+			}
+			childDone = nil
+		case e := <-inputDone:
+			if e == io.EOF {
+				return nil
+			}
+			return e
+		case e := <-outputDone:
+			if e == io.EOF {
+				return nil
+			}
+			return e
+		case <-resize:
+			if w, h, e := term.GetSize(os.Stdin.Fd()); e == nil {
+				w, h = attachmentSize(w, h)
+				if e = c.WriteJSON(api.FrameResize, api.TerminalSize{Width: w, Height: h}); e != nil {
+					return e
+				}
+			}
+		}
+	}
+}
+
+// A PTY can report zero dimensions when its parent has no terminal, or while
+// its window is minimized. A terminal requires usable dimensions.
+func attachmentSize(width, height int) (int, int) {
+	if width < 1 || width > 65535 {
+		width = 80
+	}
+	if height < 1 || height > 65535 {
+		height = 24
+	}
+	return width, height
+}

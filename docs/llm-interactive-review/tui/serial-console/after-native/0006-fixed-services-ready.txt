@@ -1,0 +1,35 @@
+            ╭──────────────────────────────────────────────────────────────────────────────────────────────╮            
+            │ Project services                                                                             │            
+            │ 0–0 of 0 · selected 0                                                                        │            
+            │ No matching entries                                                                          │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            │                                                                                              │            
+            ╰──────────────────────────────────────────────────────────────────────────────────────────────╯            
+            q/Esc back                                                                                                  
+            Session: notes / test-note-feature                                                                          
+            Session-user p-project-*.service units only.                                                                
+            Ports are session-local; no host publication is added.                                                      
+                                                                                                                        
+            No project units observed. Install a user unit inside the session.                                          
+            Use ~/.config/systemd/user/p-project-NAME.service and systemctl --user.                                     
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        
+                                                                                                                        

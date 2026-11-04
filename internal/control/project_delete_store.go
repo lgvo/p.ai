@@ -1,0 +1,403 @@
+package control
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"reflect"
+	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
+)
+
+type projectDeleteQuerier interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}
+
+// ProjectDeleteSnapshot binds the complete bounded registry resource set.
+func (s *Store) ProjectDeleteSnapshot(ctx context.Context, project string) ([]Session, string, error) {
+	return projectDeleteSnapshot(ctx, s.db, project)
+}
+func projectDeleteSnapshot(ctx context.Context, q projectDeleteQuerier, project string) ([]Session, string, error) {
+	if !validProject(project) {
+		return nil, "", ErrInvalid
+	}
+	target := api.TargetProject(project)
+	var policy, sha, registry, origin string
+	err := q.QueryRowContext(ctx, `SELECT policy_json,policy_sha256,registry_state,COALESCE((SELECT url FROM project_origins WHERE project_path=path),'') FROM projects WHERE path=?`, project).Scan(&policy, &sha, &registry, &origin)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, "", NotFound(api.ReasonProject, target)
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	if registry != "active" {
+		return nil, "", Conflict(api.ReasonProjectDeleting, target)
+	}
+	// An unfinished operation holds the project: a running one for a moment,
+	// a blocked one until a person retries it.
+	var opID, opStatus string
+	err = q.QueryRowContext(ctx, `SELECT id,status FROM operations WHERE project_path=? AND status IN ('running','blocked') ORDER BY id LIMIT 1`, project).Scan(&opID, &opStatus)
+	if err == nil {
+		if opStatus == "running" {
+			return nil, "", Retry(api.ReasonProjectHeld, api.TargetOperation(opID))
+		}
+		return nil, "", Conflict(api.ReasonOperationBlocked, api.TargetOperation(opID))
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return nil, "", err
+	}
+	var guards int
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE project_path=?`, project).Scan(&guards); err != nil {
+		return nil, "", err
+	}
+	if guards != 0 {
+		return nil, "", &Refusal{Kind: api.KindConflict, Reason: api.ReasonOperationUnfinished, Target: target,
+			Cause: fmt.Errorf("%w: unfinished project authority; complete existing operation or investigate its exact identity", ErrConflict)}
+	}
+	rows, err := q.QueryContext(ctx, `SELECT uuid,project_path,branch,registry_state,policy_json,policy_sha256 FROM sessions WHERE project_path=? ORDER BY uuid`, project)
+	if err != nil {
+		return nil, "", err
+	}
+	sessions := []Session{}
+	for rows.Next() {
+		var s Session
+		var raw string
+		if err = rows.Scan(&s.UUID, &s.Project, &s.Branch, &s.Registry, &raw, &s.PolicySHA256); err != nil {
+			break
+		}
+		s.Policy = json.RawMessage(raw)
+		sessions = append(sessions, s)
+		if s.Registry != "established" {
+			err = Conflict(api.ReasonSessionNotEstablished, api.TargetSession(s.UUID))
+			break
+		}
+		if len(sessions) > 4 {
+			err = Conflict(api.ReasonBoundExceeded, target)
+			break
+		}
+	}
+	rowErr := rows.Err()
+	rows.Close()
+	if err != nil || rowErr != nil {
+		return nil, "", errors.Join(err, rowErr)
+	}
+	// Include every historical authority proof, including retired principals;
+	// a new settled mutation still invalidates an old report.
+	facts := []string{policy, sha, origin}
+	for _, query := range []string{
+		`SELECT id||':'||kind||':'||request_sha256||':'||status||':'||phase||':'||COALESCE(evidence_json,'') FROM operations WHERE project_path=? ORDER BY id`,
+		`SELECT fingerprint||':'||role||':'||COALESCE(session_uuid,'')||':'||active FROM git_principals WHERE project_path=? ORDER BY fingerprint`,
+		`SELECT commit_oid||':'||base_image||':'||system||':'||builder_version||':'||image_ref||':'||build_ref||':'||labels_json||':'||selection||':'||material_sha256||':'||logical_size||':'||state||':'||created_at
+		 FROM commit_images WHERE project_path=? ORDER BY commit_oid,base_image,system,builder_version`,
+	} {
+		rows, err = q.QueryContext(ctx, query, project)
+		if err != nil {
+			return nil, "", err
+		}
+		n := 0
+		for rows.Next() {
+			var v string
+			if err = rows.Scan(&v); err != nil {
+				break
+			}
+			facts = append(facts, v)
+			n++
+			if n > 1024 {
+				err = Conflict(api.ReasonBoundExceeded, target)
+				break
+			}
+		}
+		rowErr = rows.Err()
+		rows.Close()
+		if err != nil || rowErr != nil {
+			return nil, "", errors.Join(err, rowErr)
+		}
+	}
+	raw, _ := json.Marshal(struct {
+		Sessions []Session
+		Facts    []string
+	}{sessions, facts})
+	if len(raw) > 512<<10 {
+		return nil, "", Conflict(api.ReasonBoundExceeded, target)
+	}
+	return sessions, digest(raw), nil
+}
+
+// BeginProjectDelete retires project req.Project and records the deletion
+// run req, whose plan has change hash hash, after verify planned it again
+// under the Git authority.
+func (s *Store) BeginProjectDelete(ctx context.Context, req ProjectDeleteRequest, ev ProjectDeleteEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	expiry, ok := api.ParseChangeTag(req.IfMatch)
+	if !validProject(req.Project) || req.Key == "" || len(req.Key) > 128 || !ok || !validFingerprint(hash) || !validProjectDeleteEvidence(ev) || verify == nil {
+		return api.Operation{}, ErrInvalid
+	}
+	raw, _ := json.Marshal(req)
+	proof, _ := json.Marshal(ev)
+	if len(proof) > maxProjectDeleteReviewBytes {
+		return api.Operation{}, ErrInvalid
+	}
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	defer s.gitAuthority.Unlock()
+	prior, replayErr := s.GetOperationByKey(ctx, req.Key)
+	if replayErr == nil {
+		if prior.Kind != "project.delete" || digest(prior.Request) != digest(raw) {
+			return api.Operation{}, KeyReused()
+		}
+		return prior, nil
+	}
+	if !errors.Is(replayErr, ErrNotFound) {
+		return api.Operation{}, replayErr
+	}
+	if err := verify(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	old, err := getOperationTx(ctx, tx, req.Key)
+	if err == nil {
+		if old.Kind != "project.delete" || digest(old.Request) != digest(raw) {
+			return api.Operation{}, KeyReused()
+		}
+		return old, nil
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return api.Operation{}, err
+	}
+	// The planned facts are checked again inside the transaction that
+	// retires the project; any difference makes the change tag stale.
+	if !time.Now().Before(expiry) {
+		return api.Operation{}, Stale(api.ReasonExpired)
+	}
+	sessions, sha, err := projectDeleteSnapshot(ctx, tx, req.Project)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	if sha != ev.StateSHA256 || len(sessions) != len(ev.Sessions) {
+		return api.Operation{}, Stale(api.ReasonChanged)
+	}
+	for i, s := range sessions {
+		ps := ev.Sessions[i]
+		if !reflect.DeepEqual(api.SessionRecord(s), ps.Session) || ps.Local.Completed || s.Project != req.Project {
+			return api.Operation{}, Stale(api.ReasonChanged)
+		}
+		var matching, total int
+		if tx.QueryRowContext(ctx, `SELECT count(*),COALESCE(sum(CASE WHEN fingerprint=? AND active=1 AND project_path=? AND role='session' THEN 1 ELSE 0 END),0) FROM git_principals WHERE session_uuid=?`, ps.Local.KeyFingerprint, req.Project, s.UUID).Scan(&total, &matching) != nil || total != 1 || matching != 1 {
+			return api.Operation{}, Stale(api.ReasonChanged)
+		}
+		creator, e := operationByIDTx(ctx, tx, ps.Local.OldOperationID)
+		if e != nil || creator.SessionUUID != s.UUID || creator.Project != req.Project || creator.Kind != "session.create" && creator.Kind != "project.create" || creator.Status != "completed" {
+			return api.Operation{}, Stale(api.ReasonChanged)
+		}
+	}
+	for _, im := range ev.Images {
+		if im.Image.Key.Project != req.Project {
+			return api.Operation{}, ErrConflict
+		}
+	}
+
+	for _, r := range ev.Resources {
+		if r.Status != "remaining" || r.StopIssued || r.DeleteIssued {
+			return api.Operation{}, ErrInvalid
+		}
+	}
+	id, err := newUUID()
+	if err != nil {
+		return api.Operation{}, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	// Retire authority first inside this transaction; insert is the sole deletion
+	// intent accepted for a deleting project. No resource effects precede commit.
+	if _, err = tx.ExecContext(ctx, `UPDATE projects SET registry_state='deleting' WHERE path=?`, req.Project); err != nil {
+		return api.Operation{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE project_path=?`, req.Project); err != nil {
+		return api.Operation{}, err
+	}
+	if _, err = tx.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE project_path=?`, req.Project); err != nil {
+		return api.Operation{}, err
+	}
+	rec := operationRecord{ID: id, Key: req.Key, Kind: KindProjectDelete, Project: req.Project, Request: raw,
+		Intent: api.OperationIntent{Project: req.Project}, Phase: "ensure-absent", Committed: true, Evidence: proof, ChangeHash: hash, Now: now}
+	if err = j.insert(ctx, rec); err != nil {
+		return api.Operation{}, classifyWrite(err)
+	}
+	if err = j.commit(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	return rec.operation(), nil
+}
+
+// UpdateProjectDelete changes only resource progress; exact accepted identities
+// cannot drift and positive absence/delete-issued markers never rewind.
+func (s *Store) UpdateProjectDelete(ctx context.Context, observed api.Operation, next ProjectDeleteEvidence, status, reason, diagnostic string) error {
+	if !validProjectDeleteEvidence(next) || status != "running" && status != "blocked" || !reasonFits(status, reason) {
+		return ErrInvalid
+	}
+	diagnostic = api.BoundDiagnostic(diagnostic)
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	old, err := operationByIDTx(ctx, tx, observed.ID)
+	var prev ProjectDeleteEvidence
+	if err != nil || old.Kind != "project.delete" || old.Phase != "ensure-absent" || !old.Committed || old.Status != "running" && old.Status != "blocked" || digest(old.Evidence) != digest(observed.Evidence) || json.Unmarshal(old.Evidence, &prev) != nil || projectDeleteIdentities(prev) != projectDeleteIdentities(next) {
+		return ErrConflict
+	}
+	for i, r := range prev.Resources {
+		n := next.Resources[i]
+		if r.Kind != n.Kind || r.ID != n.ID || r.StopIssued && !n.StopIssued || r.DeleteIssued && !n.DeleteIssued || projectDeleteResourceAbsent(r) && r.Status != n.Status {
+			return ErrConflict
+		}
+	}
+	raw, _ := json.Marshal(next)
+	if len(raw) > maxProjectDeleteEvidenceBytes {
+		return ErrInvalid
+	}
+	if _, err = j.update(ctx, old.ID, `UPDATE operations SET status=?,evidence_json=?,reason=?,diagnostic=?,updated_at=? WHERE id=?`, status, string(raw), reason, diagnostic, time.Now().UTC().Format(time.RFC3339Nano), old.ID); err != nil {
+		return err
+	}
+	return j.commit(ctx)
+}
+func (s *Store) CompleteProjectDelete(ctx context.Context, observed api.Operation, verify func(context.Context) error) error {
+	if verify == nil {
+		return ErrInvalid
+	}
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return err
+	}
+	defer s.gitAuthority.Unlock()
+	if err := verify(ctx); err != nil {
+		return err
+	}
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	op, err := operationByIDTx(ctx, tx, observed.ID)
+	var ev ProjectDeleteEvidence
+	if err != nil || op.Kind != "project.delete" || op.Status != "running" || op.Phase != "ensure-absent" || !op.Committed || digest(op.Evidence) != digest(observed.Evidence) || json.Unmarshal(op.Evidence, &ev) != nil || !validProjectDeleteEvidence(ev) {
+		return ErrConflict
+	}
+	for _, r := range ev.Resources {
+		if !projectDeleteResourceAbsent(r) {
+			return ErrConflict
+		}
+	}
+	var state string
+	if tx.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, op.Project).Scan(&state) != nil || state != "deleting" {
+		return ErrConflict
+	}
+	if _, err = j.update(ctx, op.ID, `UPDATE operations SET phase='finalizing' WHERE id=?`, op.ID); err != nil {
+		return err
+	}
+	if err = retireProjectRequestsTx(ctx, tx, op.Project, op.ID); err != nil {
+		return err
+	}
+	for _, query := range []string{
+		`DELETE FROM git_unborn_grants WHERE session_uuid IN (SELECT uuid FROM sessions WHERE project_path=?)`,
+		`DELETE FROM git_ref_guards WHERE project_path=?`,
+		`DELETE FROM git_principals WHERE project_path=?`,
+		`DELETE FROM commit_images WHERE project_path=?`,
+		`DELETE FROM sessions WHERE project_path=?`,
+		`DELETE FROM projects WHERE path=?`,
+	} {
+		if _, err = tx.ExecContext(ctx, query, op.Project); err != nil {
+			return err
+		}
+	}
+	// Minimal retired key/hash receipts prevent old requests from becoming new.
+	// Full historical requests, policies, origin URLs and loss evidence are erased.
+	if _, err = tx.ExecContext(ctx, `DELETE FROM operations WHERE project_path=? AND id!=?`, op.Project, op.ID); err != nil {
+		return err
+	}
+	if _, err = j.update(ctx, op.ID, `UPDATE operations SET status='completed',phase='completed',evidence_json=NULL,reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), op.ID); err != nil {
+		return err
+	}
+	if err = j.commit(ctx); err != nil {
+		return err
+	}
+	for _, ps := range ev.Sessions {
+		s.forgetSession(ps.Session.UUID)
+	}
+	return nil
+}
+
+func (s *Store) ValidateProjectDeleteAuthority(ctx context.Context, op api.Operation, ev ProjectDeleteEvidence) error {
+	current, err := s.GetOperation(ctx, op.ID)
+	if err != nil || current.Kind != "project.delete" || current.Phase != "ensure-absent" || !current.Committed || current.Status != "running" && current.Status != "blocked" || digest(current.Evidence) != digest(op.Evidence) {
+		return ErrConflict
+	}
+	var state string
+	if s.db.QueryRowContext(ctx, `SELECT registry_state FROM projects WHERE path=?`, op.Project).Scan(&state) != nil || state != "deleting" {
+		return ErrConflict
+	}
+	var count int
+	if s.db.QueryRowContext(ctx, `SELECT count(*) FROM sessions WHERE project_path=?`, op.Project).Scan(&count) != nil || count != len(ev.Sessions) {
+		return ErrConflict
+	}
+	for _, ps := range ev.Sessions {
+		actual, e := s.GetSession(ctx, ps.Session.UUID)
+		expected := ps.Session
+		expected.Registry = "removing"
+		if e != nil || !reflect.DeepEqual(api.SessionRecord(actual), expected) {
+			return ErrConflict
+		}
+	}
+	if s.db.QueryRowContext(ctx, `SELECT count(*) FROM git_principals WHERE project_path=? AND active=1`, op.Project).Scan(&count) != nil || count != 0 {
+		return ErrConflict
+	}
+	return nil
+}
+
+func (s *Store) checkRetiredKey(ctx context.Context, key string) error {
+	var found int
+	e := s.db.QueryRowContext(ctx, `SELECT 1 FROM retired_lifecycle_requests WHERE idempotency_key=?`, key).Scan(&found)
+	if e == nil {
+		return KeyReused()
+	}
+	if errors.Is(e, sql.ErrNoRows) {
+		return nil
+	}
+	return e
+}
+func retireProjectRequestsTx(ctx context.Context, tx *sql.Tx, project, keep string) error {
+	type receipt struct{ key, id, kind, sha string }
+	receipts := []receipt{}
+	rows, e := tx.QueryContext(ctx, `SELECT idempotency_key,id,kind,request_sha256 FROM operations WHERE project_path=? AND id!=?`, project, keep)
+	if e != nil {
+		return e
+	}
+	for rows.Next() {
+		var r receipt
+		if e = rows.Scan(&r.key, &r.id, &r.kind, &r.sha); e != nil {
+			break
+		}
+		receipts = append(receipts, r)
+	}
+	rowErr := rows.Err()
+	rows.Close()
+	if e != nil || rowErr != nil {
+		return errors.Join(e, rowErr)
+	}
+
+	for _, r := range receipts {
+		if _, e = tx.ExecContext(ctx, `INSERT INTO retired_lifecycle_requests(idempotency_key,operation_id,kind,request_sha256) VALUES(?,?,?,?)`, r.key, r.id, r.kind, r.sha); e != nil {
+			return e
+		}
+	}
+	return nil
+}

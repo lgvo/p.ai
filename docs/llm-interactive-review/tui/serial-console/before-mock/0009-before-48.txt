@@ -1,0 +1,16 @@
+ P · Sessions · waiting → running → other       
+ ╭────────────────────────────────────────────╮ 
+ │ All project sessions                       │ 
+ │ 1–1 of 4 · selected 1                      │ 
+ │ forge / feat/device-login                  │ 
+ │ running · Policy current · unattended      │ 
+ │ Agents [A] · latest: Codex · waiting · Wa… │ 
+ │ Project services [S]: 3 units observed     │ 
+ ╰────────────────────────────────────────────╯ 
+ j/k · PgUp/PgDn page · Enter open · gg/G ends  
+ s stop · c create · P project · / search       
+ D details · A reports · S services · ? help    
+ O operations · p policy · b branches           
+ R rename · d discard · X delete · q/Esc back   
+                                                
+                                                

@@ -1,0 +1,29 @@
+[Unit]
+Description=P persistent interactive host
+Requires=nix-daemon.service
+After=nix-daemon.service
+
+[Service]
+Type=exec
+User=p
+Group=p
+WorkingDirectory=/workspace
+Environment=HOME=/home/p
+RuntimeDirectory=p-interactive
+RuntimeDirectoryMode=0700
+ExecStartPre=+/usr/libexec/p/runtime-kit prepare-endpoints
+ExecStartPre=+/usr/libexec/p/runtime-kit prepare-grants
+ExecStartPre=+/usr/libexec/p/runtime-kit prepare-network
+ExecStartPre=+/usr/libexec/p/runtime-kit init-workspace
+ExecStartPre=/usr/libexec/p/runtime-kit validate
+ExecStart=/usr/libexec/p/runtime-kit start-host
+ExecStartPost=/usr/libexec/p/runtime-kit prepare-host
+ExecStopPost=+/usr/libexec/p/runtime-kit shutdown
+Restart=no
+KillMode=control-group
+TimeoutStartSec=120s
+TimeoutStopSec=10s
+NoNewPrivileges=yes
+
+[Install]
+WantedBy=p-session.target

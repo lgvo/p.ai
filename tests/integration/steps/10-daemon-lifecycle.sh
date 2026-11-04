@@ -1,0 +1,417 @@
+# shellcheck shell=bash
+# Public lifecycle through the configured production daemon, its Git source
+# driver and a runtime driver whose session host unit is gated. Runs as pdev
+# in the disposable VM.
+set -E
+umask 077
+step_dir="$P_TEST_TMP/step-10"
+mkdir -m 0700 "$step_dir"
+state="$step_dir/state"
+mkdir -m 0700 "$state"
+socket="$state/control.sock"
+endpoint_prefix=/var/lib/p-vm/endpoints/pdev/step10
+mkdir -m 0700 "$endpoint_prefix"
+export INCUS_SOCKET=/var/lib/incus/unix.socket.user
+daemon_pid=
+sessions=()
+obstacle=
+
+inc() { timeout 45 incus --force-local --project user-1000 "$@"; }
+rpc() { timeout 30 p api "$socket" "$@"; }
+exec_p() {
+  local uuid="$1"
+  shift
+  inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
+    --env HOME=/home/p --env GIT_SSH=/usr/libexec/p/git-ssh -- "$@"
+}
+stop_daemon() {
+  if test -n "$daemon_pid"; then
+    kill -TERM "$daemon_pid" 2>/dev/null || true
+    for ((attempt=0; attempt<100; attempt++)); do
+      if ! kill -0 "$daemon_pid" 2>/dev/null; then break; fi
+      sleep 0.1
+    done
+    if kill -0 "$daemon_pid" 2>/dev/null; then kill -KILL "$daemon_pid" 2>/dev/null || true; fi
+    wait "$daemon_pid" 2>/dev/null || true
+    daemon_pid=
+  fi
+}
+cleanup() {
+  stop_daemon
+  if test -n "$obstacle"; then rm -f -- "$obstacle"; fi
+  for uuid in "${sessions[@]}"; do
+    inc delete --force "p-$uuid" >/dev/null 2>&1 || true
+    rm -rf -- "${endpoint_prefix:?}/${uuid:?}"
+  done
+  rmdir "$endpoint_prefix" 2>/dev/null || true
+}
+on_error() {
+  printf 'P_DAEMON_LIFECYCLE_FAIL line=%s status=%s\n' "$2" "$1" >&2
+
+  # Public operation summaries identify the failing phase without exposing
+  # request or evidence payloads from operation.inspect.
+  local operations id detail
+  if operations=$(timeout 5 p api "$socket" operation.list '{"limit":20}' 2>/dev/null); then
+    jq -cr '.result.operations[]? | {id,session_uuid,status,phase,
+      diagnostic: ((.diagnostic // "")[:512])}' <<< "$operations" >&2 || true
+  fi
+  for id in "${retry_id:-}" "${main_id:-}" "${work_id:-}"; do
+    if test -n "$id" && detail=$(timeout 5 p api "$socket" operation.inspect \
+      "$(jq -nc --arg id "$id" '{id:$id}')" 2>/dev/null); then
+      jq -cr '.result.operation | {id,session_uuid,status,phase,
+        diagnostic: ((.diagnostic // "")[:512])}' <<< "$detail" >&2 || true
+    fi
+  done
+  for log in daemon.err refused.err; do
+    if test -f "$step_dir/$log"; then tail -c 2048 "$step_dir/$log" >&2 || true; fi
+  done
+  for uuid in "${sessions[@]}"; do
+    inc info "p-$uuid" --show-log 2>&1 | tail -c 1024 >&2 || true
+  done
+}
+trap cleanup EXIT
+trap 'on_error "$?" "$LINENO"' ERR
+
+fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
+test "${#fingerprint}" -eq 64
+incus_binary=$(command -v incus)
+# The gated driver's host unit waits for a file supplied through the ordinary
+# Incus file API. Its timeout gives a bounded, inspectable host activation
+# failure.
+driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_binary" "$P_TEST_GATED_RUNTIME_DRIVER")
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
+jq -n --arg state "$state" --argjson source_driver "$source_driver" \
+  --argjson driver "$driver" --arg prefix "$endpoint_prefix" \
+  --arg image "$fingerprint" \
+  '{schema:"p.host/v1",state_dir:$state,
+   git:{listen:"127.0.0.1:0",driver:$source_driver},
+   runtime:{driver:$driver,
+    endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
+    base_image_fingerprint:$image,
+    project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' \
+  > "$step_dir/host.json"
+bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
+
+start_daemon() {
+  : > "$step_dir/daemon.err"
+  p daemon "$step_dir/host.json" > "$step_dir/daemon.out" 2> "$step_dir/daemon.err" &
+  daemon_pid=$!
+  local deadline=$((SECONDS+30))
+  while ((SECONDS < deadline)); do
+    if test -S "$socket" && timeout 3 p api "$socket" system.health |
+      jq -e '.result.control_state=="ready"' >/dev/null 2>&1; then return; fi
+    if ! kill -0 "$daemon_pid" 2>/dev/null; then
+      echo 'configured daemon exited before readiness' >&2
+      return 1
+    fi
+    sleep 0.1
+  done
+  echo 'configured daemon did not become ready' >&2
+  return 1
+}
+# expect_error KIND REASON METHOD PARAMS: the request is refused with the
+# error kind, its code and the reason.
+expect_error() {
+  local kind="$1" reason="$2" code response
+  case "$kind" in
+    invalid) code=-32602 ;;
+    conflict) code=-32011 ;;
+    not_found) code=-32015 ;;
+    *) echo "unsupported expected error: $kind" >&2; return 1 ;;
+  esac
+  if response=$(rpc "$3" "$4" 2> "$step_dir/refused.err"); then
+    echo "refused $3 unexpectedly accepted" >&2
+    return 1
+  fi
+  if ! jq -e --arg kind "$kind" --argjson code "$code" --arg reason "$reason" \
+    '.error.message==$kind and .error.code==$code and .error.data.reason==$reason' <<< "$response" >/dev/null; then
+    printf 'unexpected %s response, expected %s %s: %.2048s\n' "$3" "$kind" "$reason" "$response" >&2
+    return 1
+  fi
+}
+operation_id() {
+  jq -er '.result.operation.id | select(type=="string" and length==36)' <<< "$1"
+}
+session_uuid() {
+  jq -er '.result.operation.session_uuid | select(type=="string" and length==36)' <<< "$1"
+}
+inspect_operation() {
+  rpc operation.inspect "$(jq -nc --arg id "$1" '{id:$id}')"
+}
+inspect_session() {
+  rpc session.inspect "$(jq -nc --arg uuid "$1" '{uuid:$uuid}')"
+}
+wait_operation() {
+  local id="$1" expected="$2" result status deadline=$((SECONDS+160))
+  while ((SECONDS < deadline)); do
+    result=$(rpc operation.wait "$(jq -nc --arg id "$id" '{id:$id,timeout:20}')")
+    status=$(jq -er '.result.operation.status | select(type=="string" and length>0)' <<< "$result")
+    if jq -e --arg id "$id" --arg status "$expected" \
+      '.result.operation.id==$id and .result.operation.status==$status' <<< "$result" >/dev/null; then
+      printf '%s\n' "$result"
+      return
+    fi
+    if { test "$status" = blocked || test "$status" = completed || test "$status" = failed; } &&
+      test "$status" != "$expected"; then
+      echo "operation reached unexpected terminal status: $result" >&2
+      return 1
+    fi
+    if test "$status" != running; then sleep 0.4; fi
+  done
+  echo "operation did not reach $expected: $id" >&2
+  return 1
+}
+# change_session METHOD UUID STATUS: METHOD, session.start or session.stop,
+# records an operation of its kind for session UUID, which ends in STATUS;
+# prints the operation's last answer.
+change_session() {
+  local id
+  id=$(rpc "$1" "$(jq -nc --arg uuid "$2" '{uuid:$uuid}')" | jq -er --arg kind "$1" \
+    '.result | select(.changed==true and .operation.kind==$kind) | .operation.id') || return
+  wait_operation "$id" "$3"
+}
+wait_condition() {
+  local uuid="$1" expected="$2" result condition last='no observation' deadline=$((SECONDS+80))
+  while ((SECONDS < deadline)); do
+    if result=$(inspect_session "$uuid" 2> "$step_dir/inspect.err"); then
+      last=$(jq -cr '.result.session | {condition: .session_condition,
+        diagnostic: (.diagnostic // "")[:512]}' <<< "$result")
+      condition=$(jq -er '.result.session.session_condition | select(type=="string" and length>0)' <<< "$result")
+      if jq -e --arg uuid "$uuid" --arg expected "$expected" \
+        '.result.session.uuid==$uuid and .result.session.session_condition==$expected' \
+        <<< "$result" >/dev/null; then printf '%s\n' "$result"; return; fi
+      if test "$condition" = stopped && test "$expected" = ready; then
+        echo "session stopped before readiness: $uuid $last" >&2
+        return 1
+      fi
+    else
+      last='session.inspect temporarily unavailable'
+    fi
+    sleep 0.4
+  done
+  echo "session did not reach $expected: $uuid $last" >&2
+  return 1
+}
+release_on_running() {
+  local uuid="$1" operation="${2:-}" detail deadline=$((SECONDS+80))
+  : > "$step_dir/release.err"
+  while ((SECONDS < deadline)); do
+    if test -n "$operation" && detail=$(inspect_operation "$operation" 2>/dev/null); then
+      if jq -e '.result.operation.status=="blocked"' <<< "$detail" >/dev/null; then
+        echo 'creation blocked before runtime release:' >&2
+        jq -cr '.result.operation | {id,session_uuid,status,phase,
+          diagnostic: ((.diagnostic // "")[:512])}' <<< "$detail" >&2
+        return 1
+      fi
+    fi
+    if timeout 5 incus --force-local --project user-1000 list "p-$uuid" --format json 2>/dev/null |
+      jq -e --arg name "p-$uuid" 'any(.[]; .name==$name and .status=="Running")' >/dev/null 2>&1; then
+      if timeout 5 incus --force-local --project user-1000 file push --uid 0 --gid 0 --mode 0644 \
+        "$step_dir/release" "p-$uuid/etc/p/test-release" 2> "$step_dir/release.err"; then return; fi
+    fi
+    sleep 0.3
+  done
+  echo "runtime did not accept release before deadline: $uuid" >&2
+  if test -s "$step_dir/release.err"; then tail -c 1024 "$step_dir/release.err" >&2; fi
+  return 1
+}
+check_session() {
+  local result
+  result=$(wait_condition "$1" ready)
+  jq -e --arg uuid "$1" --arg project "$2" --arg branch "$3" \
+    '.result.session.uuid==$uuid and .result.session.project==$project and
+     .result.session.branch==$branch and .result.session.registry_state=="established" and
+     .result.session.policy_condition=="current" and .result.session.session_condition=="ready" and
+     (.result.session.policy_sha256|type=="string" and length==64)' <<< "$result" >/dev/null
+}
+check_identity() {
+  local hello result
+  hello=$(rpc system.hello)
+  test "$(jq -er '.result.instance_id | select(type=="string" and length==36)' <<< "$hello")" = "$instance_id"
+  jq -e '.result.capabilities | index("git")!=null and index("runtime")!=null' <<< "$hello" >/dev/null
+  result=$(rpc system.inspect)
+  jq -e --arg server "$server_key" --arg client "$client_key" \
+    '.result.git.host_public_key==$server and .result.git.client_public_key==$client' \
+    <<< "$result" >/dev/null
+  test "$(stat -c '%d:%i' "$endpoint_prefix/$main_uuid")" = "$main_endpoint_inode"
+  test "$(stat -c '%d:%i' "$endpoint_prefix/$work_uuid")" = "$work_endpoint_inode"
+  test -S "$endpoint_prefix/$main_uuid/git.sock"
+  test -S "$endpoint_prefix/$work_uuid/session.sock"
+}
+
+printf 'release\n' > "$step_dir/release"
+start_daemon
+hello=$(rpc system.hello)
+instance_id=$(jq -er '.result.instance_id | select(type=="string" and length==36)' <<< "$hello")
+jq -e '.result.capabilities | index("git")!=null and index("runtime")!=null' <<< "$hello" >/dev/null
+inspected=$(rpc system.inspect)
+server_key=$(jq -er '.result.git.host_public_key | select(type=="string" and length>0)' <<< "$inspected")
+client_key=$(jq -er '.result.git.client_public_key | select(type=="string" and length>0)' <<< "$inspected")
+
+# A file at the selected bare-repository path blocks Git initialization before
+# any session runtime work. Removing it permits exact public operation.retry.
+if ! test -d "$state/repositories"; then mkdir -m 0700 "$state/repositories"; fi
+obstacle="$state/repositories/$(printf %s retry-project | sha256sum | cut -d' ' -f1).git"
+printf 'blocked\n' > "$obstacle"
+retry_request='{"key":"lifecycle-retry","project":"retry-project"}'
+retry_created=$(rpc project.create "$retry_request")
+retry_id=$(operation_id "$retry_created")
+retry_uuid=$(session_uuid "$retry_created")
+sessions+=("$retry_uuid")
+retry_blocked=$(wait_operation "$retry_id" blocked)
+jq -e '.result.operation.phase=="repo-pending" and .result.operation.committed==false and
+  (.result.operation.diagnostic|type=="string" and length>0 and length<=900)' \
+  <<< "$retry_blocked" >/dev/null
+test "$(inc list --format json | jq --arg uuid "$retry_uuid" '[.[]|select(.name==("p-"+$uuid))]|length')" -eq 0
+test "$(rpc project.create "$retry_request" | jq -er '.result.operation.id')" = "$retry_id"
+expect_error invalid key_reused project.create '{"key":"lifecycle-retry","project":"different"}'
+rm "$obstacle"
+obstacle=
+retry_response=$(rpc operation.retry "$(jq -nc --arg id "$retry_id" '{id:$id}')")
+test "$(operation_id "$retry_response")" = "$retry_id"
+test "$(session_uuid "$retry_response")" = "$retry_uuid"
+release_on_running "$retry_uuid" "$retry_id"
+retry_done=$(wait_operation "$retry_id" completed)
+jq -e --arg uuid "$retry_uuid" '.result.operation.session_uuid==$uuid and
+  .result.operation.phase=="established" and .result.operation.committed==true' \
+  <<< "$retry_done" >/dev/null
+check_session "$retry_uuid" retry-project main
+test "$(inc list --format json | jq --arg uuid "$retry_uuid" '[.[]|select(.name==("p-"+$uuid))]|length')" -eq 1
+rpc project.branches '{"project":"retry-project","limit":8}' |
+  jq -e '.result.refs==[] and .result.next==""' >/dev/null
+
+# Blank creation reserves unborn main. The first commit comes from the actual
+# guest Git workspace and its assigned SSH principal.
+project_request='{"key":"lifecycle-main","project":"lifecycle"}'
+main_created=$(rpc project.create "$project_request")
+main_id=$(operation_id "$main_created")
+main_uuid=$(session_uuid "$main_created")
+sessions+=("$main_uuid")
+release_on_running "$main_uuid" "$main_id"
+wait_operation "$main_id" completed >/dev/null
+check_session "$main_uuid" lifecycle main
+test "$(rpc project.create "$project_request" | jq -er '.result.operation.id')" = "$main_id"
+expect_error invalid key_reused project.create '{"key":"lifecycle-main","project":"other"}'
+test "$(exec_p "$main_uuid" git symbolic-ref -q HEAD)" = refs/heads/main
+if exec_p "$main_uuid" git rev-parse --verify HEAD > "$step_dir/unexpected.out" 2> "$step_dir/refused.err"; then
+  echo 'blank project received an artificial commit' >&2
+  exit 1
+fi
+rpc project.branches '{"project":"lifecycle","limit":8}' |
+  jq -e '.result.refs==[] and .result.next==""' >/dev/null
+expect_error not_found source session.create '{"key":"before-first-commit","project":"lifecycle","branch":"work","choice":"new","source":"refs/heads/main"}'
+exec_p "$main_uuid" git config user.name P
+exec_p "$main_uuid" git config user.email p@example.invalid
+exec_p "$main_uuid" sh -c 'printf "first\n" > README'
+exec_p "$main_uuid" git add README
+exec_p "$main_uuid" git commit -qm first
+exec_p "$main_uuid" git push origin HEAD:main
+main_oid=$(exec_p "$main_uuid" git rev-parse HEAD)
+rpc project.branches '{"project":"lifecycle","limit":8}' |
+  jq -e --arg oid "$main_oid" '.result.refs==[{"ref":"refs/heads/main","oid":$oid}]' >/dev/null
+
+work_request='{"key":"lifecycle-work","project":"lifecycle","branch":"work","choice":"new","source":"refs/heads/main"}'
+work_created=$(rpc session.create "$work_request")
+work_id=$(operation_id "$work_created")
+work_uuid=$(session_uuid "$work_created")
+sessions+=("$work_uuid")
+release_on_running "$work_uuid" "$work_id"
+work_done=$(wait_operation "$work_id" completed)
+jq -e --arg oid "$main_oid" '.result.operation.evidence.captured_oid==$oid and
+  .result.operation.phase=="established"' <<< "$work_done" >/dev/null
+check_session "$work_uuid" lifecycle work
+test "$(exec_p "$work_uuid" git rev-parse HEAD)" = "$main_oid"
+test "$(exec_p "$work_uuid" git symbolic-ref -q HEAD)" = refs/heads/work
+test "$(exec_p "$work_uuid" cat README)" = first
+test "$(session_uuid "$(rpc session.create "$work_request")")" = "$work_uuid"
+expect_error invalid key_reused session.create '{"key":"lifecycle-work","project":"lifecycle","branch":"other","choice":"new","source":"refs/heads/main"}'
+expect_error conflict branch_assigned session.create '{"key":"assigned-branch","project":"lifecycle","branch":"work","choice":"existing"}'
+rpc operation.list '{"limit":20}' | jq -e --arg id "$work_id" \
+  '.result.operations|any(.[]; .id==$id and .status=="completed")' >/dev/null
+rpc session.list '{"limit":8}' | jq -e --arg uuid "$work_uuid" \
+  '.result.sessions|any(.[]; .uuid==$uuid and .session_condition=="ready")' >/dev/null
+rpc project.branches '{"project":"lifecycle","limit":8}' |
+  jq -e --arg oid "$main_oid" \
+    '.result.refs==[{"ref":"refs/heads/main","oid":$oid},{"ref":"refs/heads/work","oid":$oid}] and .result.next==""' >/dev/null
+rpc system.inspect | jq -e '.result.projects==2 and .result.sessions==3 and .result.operations==3' >/dev/null
+
+# Stop/Start retains the complete guest root, including unpushed Git work,
+# user home, Nix store content, credentials, and the Incus instance identity.
+exec_p "$work_uuid" git config user.name P
+exec_p "$work_uuid" git config user.email p@example.invalid
+exec_p "$work_uuid" sh -c 'printf "local\n" > local.txt; printf "dirty\n" > dirty; printf "private\n" > /home/p/private; printf "{}\n" > flake.nix'
+exec_p "$work_uuid" git add local.txt flake.nix
+exec_p "$work_uuid" git commit -qm local
+local_oid=$(exec_p "$work_uuid" git rev-parse HEAD)
+exec_p "$work_uuid" git checkout -q --detach
+store_path=$(exec_p "$work_uuid" nix-store --add /workspace/README)
+key_hash=$(inc file pull "p-$work_uuid/etc/p/git/identity" - | sha256sum | cut -d' ' -f1)
+main_endpoint_inode=$(stat -c '%d:%i' "$endpoint_prefix/$main_uuid")
+work_endpoint_inode=$(stat -c '%d:%i' "$endpoint_prefix/$work_uuid")
+change_session session.stop "$work_uuid" completed >/dev/null
+wait_condition "$work_uuid" stopped >/dev/null
+inc list "p-$work_uuid" --format json | jq -e --arg name "p-$work_uuid" \
+  'any(.[]; .name==$name and .status=="Stopped")' >/dev/null
+change_session session.start "$work_uuid" completed >/dev/null
+wait_condition "$work_uuid" ready >/dev/null
+test "$(exec_p "$work_uuid" git rev-parse HEAD)" = "$local_oid"
+test "$(exec_p "$work_uuid" git symbolic-ref -q HEAD || true)" = ''
+test "$(exec_p "$work_uuid" cat dirty)" = dirty
+test "$(exec_p "$work_uuid" cat /home/p/private)" = private
+exec_p "$work_uuid" test -f flake.nix
+exec_p "$work_uuid" test -e "$store_path"
+test "$(inc file pull "p-$work_uuid/etc/p/git/identity" - | sha256sum | cut -d' ' -f1)" = "$key_hash"
+
+stop_daemon
+test ! -e "$socket"
+start_daemon
+check_identity
+check_session "$main_uuid" lifecycle main
+check_session "$work_uuid" lifecycle work
+test "$(exec_p "$work_uuid" git ls-remote origin refs/heads/main | cut -f1)" = "$main_oid"
+kill -KILL "$daemon_pid"
+wait "$daemon_pid" 2>/dev/null || true
+daemon_pid=
+start_daemon
+check_identity
+check_session "$work_uuid" lifecycle work
+test "$(exec_p "$work_uuid" git ls-remote origin refs/heads/main | cut -f1)" = "$main_oid"
+
+# A registered private session key must block Start rather than silently
+# rotate. Restore the same key, then exercise ordinary Start recovery.
+change_session session.stop "$work_uuid" completed >/dev/null
+wait_condition "$work_uuid" stopped >/dev/null
+mv "$state/session_keys/$work_uuid" "$step_dir/work-key.saved"
+if rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" \
+  > "$step_dir/unexpected.out" 2> "$step_dir/refused.err"; then
+  echo 'Start accepted a missing registered key' >&2
+  exit 1
+fi
+test ! -e "$state/session_keys/$work_uuid"
+inc list "p-$work_uuid" --format json | jq -e --arg name "p-$work_uuid" \
+  'any(.[]; .name==$name and .status=="Stopped")' >/dev/null
+mv "$step_dir/work-key.saved" "$state/session_keys/$work_uuid"
+test "$(sha256sum "$state/session_keys/$work_uuid" | cut -d' ' -f1)" = "$key_hash"
+
+# Remove the host gate while stopped, so the same trusted unit fails to
+# activate. The start fails with the runtime's diagnostic, stops the guest,
+# and the session shows that bounded diagnostic.
+inc file delete "p-$work_uuid/etc/p/test-release"
+failed_operation=$(change_session session.start "$work_uuid" failed)
+jq -e '.result.operation.reason=="runtime" and
+  (.result.operation.diagnostic|type=="string" and length>0)' <<< "$failed_operation" >/dev/null
+failed_start=$(wait_condition "$work_uuid" stopped)
+jq -e '.result.session.diagnostic|type=="string" and length>0 and length<=1024' \
+  <<< "$failed_start" >/dev/null
+inc list "p-$work_uuid" --format json | jq -e --arg name "p-$work_uuid" \
+  'any(.[]; .name==$name and .status=="Stopped")' >/dev/null
+restart_id=$(rpc session.start "$(jq -nc --arg uuid "$work_uuid" '{uuid:$uuid}')" | jq -er \
+  '.result | select(.changed==true and .operation.kind=="session.start") | .operation.id')
+release_on_running "$work_uuid"
+wait_operation "$restart_id" completed >/dev/null
+wait_condition "$work_uuid" ready >/dev/null
+test "$(exec_p "$work_uuid" git rev-parse HEAD)" = "$local_oid"
+test "$(exec_p "$work_uuid" cat dirty)" = dirty
+test "$(exec_p "$work_uuid" cat /home/p/private)" = private
+stop_daemon
+echo P_DAEMON_LIFECYCLE_PASS

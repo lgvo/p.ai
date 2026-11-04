@@ -1,0 +1,19 @@
+[Unit]
+Description=Notes private PostgreSQL database
+
+[Service]
+Type=exec
+WorkingDirectory=@SOURCE@
+Environment=PYTHONUNBUFFERED=1
+@STATE@
+ExecStart=@PYTHON@ @SOURCE@/database.py serve --postgres-bin @POSTGRES_BIN@
+ExecStartPost=@PYTHON@ @SOURCE@/manage.py migrate
+KillSignal=SIGINT
+KillMode=mixed
+TimeoutStartSec=45
+TimeoutStopSec=30
+Restart=no
+UMask=0077
+
+[Install]
+WantedBy=default.target

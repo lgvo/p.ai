@@ -1,0 +1,9 @@
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "/tmp/p-screen-before-mock/0001-start", "timestamp": 1790886965.203626, "bytes": 28}
+{"op": "observe", "label": "normal-before", "wait": 1.0, "frame": "/tmp/p-screen-before-mock/0002-normal-before", "timestamp": 1790886990.2993433, "bytes": 9530}
+{"op": "send", "label": "corrupted-redraw-before", "wait": 0.2, "text": "j", "hex": null, "frame": "/tmp/p-screen-before-mock/0003-corrupted-redraw-before", "timestamp": 1790887018.7624905, "bytes": 13893}
+{"op": "qemu-output", "label": "qemu-flags-before", "frame": "/tmp/p-screen-before-mock/0004-qemu-flags-before", "timestamp": 1790887040.1345072, "bytes": 16206}
+{"op": "send", "label": "corrupted-redraw-before", "wait": 0.2, "text": "k", "hex": null, "frame": "/tmp/p-screen-before-mock/0005-corrupted-redraw-before", "timestamp": 1790887044.3576746, "bytes": 18278}
+{"op": "send", "label": "services-corrupt-before", "wait": 0.2, "text": "S", "hex": null, "frame": "/tmp/p-screen-before-mock/0006-services-corrupt-before", "timestamp": 1790887076.7362118, "bytes": 24995}
+{"op": "send", "label": "browser-before-resize", "wait": 0.2, "text": "q", "hex": null, "frame": "/tmp/p-screen-before-mock/0007-browser-before-resize", "timestamp": 1790887480.2737331, "bytes": 32130}
+{"op": "resize", "label": "before-80", "wait": 0.2, "cols": 80, "rows": 24, "frame": "/tmp/p-screen-before-mock/0008-before-80", "timestamp": 1790887500.075781, "bytes": 38023}
+{"op": "resize", "label": "before-48", "wait": 0.2, "cols": 48, "rows": 16, "frame": "/tmp/p-screen-before-mock/0009-before-48", "timestamp": 1790887515.6917646, "bytes": 40098}

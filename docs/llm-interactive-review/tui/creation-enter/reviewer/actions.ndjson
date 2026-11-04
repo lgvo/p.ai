@@ -1,0 +1,34 @@
+{"op": "start", "label": "start", "wait": 3.0, "background": "dark", "cols": 80, "rows": 24, "frame": "/tmp/p-creation-reviewer-evidence/0001-start", "timestamp": 1790879065.7992666, "bytes": 3378}
+{"op": "send", "label": "creation-projects", "wait": 0.2, "text": "c", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0002-creation-projects", "timestamp": 1790879089.8625958, "bytes": 6255}
+{"op": "send", "label": "choose-forge", "wait": 0.2, "text": "j", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0003-choose-forge", "timestamp": 1790879104.7356675, "bytes": 6387}
+{"op": "send", "label": "forge-branches", "wait": 0.2, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0004-forge-branches", "timestamp": 1790879117.1861815, "bytes": 6726}
+{"op": "send", "label": "new-source-options", "wait": 0.2, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0005-new-source-options", "timestamp": 1790879130.6268735, "bytes": 7257}
+{"op": "send", "label": "new-branch-editor", "wait": 0.2, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0006-new-branch-editor", "timestamp": 1790879141.8531628, "bytes": 7504}
+{"op": "send", "label": "new-review-80", "wait": 0.2, "text": null, "hex": "7265766965772f656e7465720d", "frame": "/tmp/p-creation-reviewer-evidence/0007-new-review-80", "timestamp": 1790879158.038329, "bytes": 8148}
+{"op": "resize", "label": "new-review-48", "wait": 0.2, "cols": 48, "rows": 16, "frame": "/tmp/p-creation-reviewer-evidence/0008-new-review-48", "timestamp": 1790879169.394787, "bytes": 9132}
+{"op": "send", "label": "new-review-48-end", "wait": 0.2, "text": "G", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0009-new-review-48-end", "timestamp": 1790879179.814152, "bytes": 9426}
+{"op": "send", "label": "new-review-back", "wait": 0.2, "text": "q", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0010-new-review-back", "timestamp": 1790879200.7286286, "bytes": 9666}
+{"op": "send", "label": "edited-new-review-48", "wait": 0.2, "text": null, "hex": "2d6564697465640d", "frame": "/tmp/p-creation-reviewer-evidence/0011-edited-new-review-48", "timestamp": 1790879212.1380444, "bytes": 10197}
+{"op": "resize", "label": "edited-new-review-80", "wait": 0.2, "cols": 80, "rows": 24, "frame": "/tmp/p-creation-reviewer-evidence/0012-edited-new-review-80", "timestamp": 1790879224.4334435, "bytes": 10853}
+{"op": "send", "label": "new-enter-transition", "wait": 0.01, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0013-new-enter-transition", "timestamp": 1790879237.7422092, "bytes": 11350}
+{"op": "observe", "label": "new-created-terminal", "wait": 1.0, "frame": "/tmp/p-creation-reviewer-evidence/0014-new-created-terminal", "timestamp": 1790879251.5171254, "bytes": 12543}
+{"op": "send", "label": "new-created-detach", "wait": 0.7, "text": null, "hex": "0264", "frame": "/tmp/p-creation-reviewer-evidence/0015-new-created-detach", "timestamp": 1790879264.2710564, "bytes": 16090}
+{"op": "send", "label": "stop-still-default-no", "wait": 0.2, "text": "s", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0016-stop-still-default-no", "timestamp": 1790879280.2086487, "bytes": 17154}
+{"op": "send", "label": "stop-enter-declines", "wait": 0.2, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0017-stop-enter-declines", "timestamp": 1790879292.833188, "bytes": 20343}
+{"op": "send", "label": "local-project-choice", "wait": 0.2, "text": "c", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0018-local-project-choice", "timestamp": 1790879303.9178424, "bytes": 22606}
+{"op": "send", "label": "local-project-name", "wait": 0.2, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0019-local-project-name", "timestamp": 1790879317.610331, "bytes": 22850}
+{"op": "send", "label": "local-project-url-editor", "wait": 0.2, "text": null, "hex": "7265766965772d6c6f63616c0d", "frame": "/tmp/p-creation-reviewer-evidence/0020-local-project-url-editor", "timestamp": 1790879329.1240008, "bytes": 22918}
+{"op": "send", "label": "local-project-review", "wait": 0.2, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0021-local-project-review", "timestamp": 1790879340.9367452, "bytes": 23659}
+{"op": "send", "label": "local-enter-transition", "wait": 0.01, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0022-local-enter-transition", "timestamp": 1790879352.8817582, "bytes": 24142}
+{"op": "observe", "label": "local-created-terminal", "wait": 0.7, "frame": "/tmp/p-creation-reviewer-evidence/0023-local-created-terminal", "timestamp": 1790879368.0414753, "bytes": 25335}
+{"op": "send", "label": "local-detach", "wait": 0.7, "text": null, "hex": "0264", "frame": "/tmp/p-creation-reviewer-evidence/0024-local-detach", "timestamp": 1790879389.8824742, "bytes": 28882}
+{"op": "send", "label": "retained-project-picker", "wait": 0.2, "text": "c", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0025-retained-project-picker", "timestamp": 1790879401.218554, "bytes": 30875}
+{"op": "send", "label": "retained-forge-branches", "wait": 0.2, "text": null, "hex": "6a0d", "frame": "/tmp/p-creation-reviewer-evidence/0026-retained-forge-branches", "timestamp": 1790879416.438959, "bytes": 31185}
+{"op": "send", "label": "retained-review", "wait": 0.2, "text": null, "hex": "6a6a0d", "frame": "/tmp/p-creation-reviewer-evidence/0027-retained-review", "timestamp": 1790879428.6787834, "bytes": 31877}
+{"op": "send", "label": "retained-review-back", "wait": 0.2, "text": "q", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0028-retained-review-back", "timestamp": 1790879441.5117562, "bytes": 33621}
+{"op": "send", "label": "retained-review-again", "wait": 0.2, "text": null, "hex": "6a6a0d", "frame": "/tmp/p-creation-reviewer-evidence/0029-retained-review-again", "timestamp": 1790879452.6689627, "bytes": 34313}
+{"op": "send", "label": "retained-enter-transition", "wait": 0.01, "text": null, "hex": "0d", "frame": "/tmp/p-creation-reviewer-evidence/0030-retained-enter-transition", "timestamp": 1790879467.1555774, "bytes": 34802}
+{"op": "observe", "label": "retained-created-terminal", "wait": 0.5, "frame": "/tmp/p-creation-reviewer-evidence/0031-retained-created-terminal", "timestamp": 1790879479.7945566, "bytes": 35995}
+{"op": "send", "label": "final-detach", "wait": 0.5, "text": null, "hex": "0264", "frame": "/tmp/p-creation-reviewer-evidence/0032-final-detach", "timestamp": 1790879565.3720145, "bytes": 39534}
+{"op": "send", "label": "clean-quit", "wait": 0.2, "text": "q", "hex": null, "frame": "/tmp/p-creation-reviewer-evidence/0033-clean-quit", "timestamp": 1790879579.1015284, "bytes": 40184}
+{"op": "close", "label": "closed", "wait": 0.2, "frame": "/tmp/p-creation-reviewer-evidence/0034-closed", "timestamp": 1790879583.2707815, "bytes": 40184}

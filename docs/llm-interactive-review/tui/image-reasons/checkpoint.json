@@ -1,0 +1,49 @@
+{
+  "date": "2026-11-03",
+  "head": "9571983 (the integration's commits before their final amend; final_files_sha256 names the reviewed files)",
+  "working_tree": "exported copies of the tracked tree at 9571983, built with GOFLAGS=-buildvcs=false (a concurrent uncommitted docs/debts/structure.md edit was replaced with its HEAD version). 'head' is unmodified. 'after-build', 'after-changed' and 'before' change only the fixture operation in tests/integration/cmd/tui-mock/main.go (line 178): Kind session.create, Phase branch-assigned, Status blocked kept, and Reason/Diagnostic image_build_failed / 'present default devShell invalid: error: expected a derivation, got an integer' (after-build, before) or image_builder_changed / 'pinned image builder selection unavailable' (after-changed). 'before' also deletes the two new operationSentences entries from internal/errtext/errtext.go; its errtext.go then matches step 3's reviewed errtext.go (sha256 ebcc9849...). Runs 'after-build' and 'after-changed' used errtext.go at 9571983 (first wording). Runs 'after2-build' and 'after2-changed' used the same copies with internal/errtext/errtext.go replaced by the reworded uncommitted working-tree file (sha256 0364b1e3...), which changes only the two sentences. The mock's Retry does not depend on the kind; tests/integration/tui-mock-test.py expects 'session.rename · blocked', so the edited copies are not used for tui-tests",
+  "scope": "Production p tui against the disposable mock socket (just tui-mock --dataset small --theme dark): O, Enter on the blocked operation, the operation page at 120x35, 80x24 and 48x16 (j, k and G at 48x16), and Esc back. Retry was not pressed. No Incus, Git, image builder or real-daemon claim",
+  "prototype": ".prototype/tui-options from the head copy (run 'proto'): O does nothing in the selected browser, which has no operations page. The historical gallery probe '--snapshot --scenario create-failed' shows 'Environment preparation failed: synthetic cache checksum mismatch.' with two next steps, 'Exact Retry — same UUID, operation, source, branch, and policy' and 'Try again with changes — integrated replacement with new identity'. The comparison baseline is step 3's reviewed page (operation-reasons/after2-0003-operation-page-120x35.png)",
+  "runs": {
+    "proto": "prototype browser at 120x35: start, O",
+    "before": "O, Enter at 120x35, resize 80x24 and 48x16, G, resize 120x35, Esc",
+    "after-build": "first wording: O, Enter at 120x35, resize 80x24 and 48x16, j, G, k x3, resize 120x35, Esc (frames not retained)",
+    "after-changed": "first wording: O, Enter at 120x35, resize 80x24 and 48x16, j x4, G, resize 120x35, Esc (frames not retained)",
+    "after2-build": "reworded: O, Enter at 120x35, resize 80x24 and 48x16, j x7, G, resize 120x35, Esc",
+    "after2-changed": "reworded: O, Enter at 120x35, resize 80x24 and 48x16, j x6, G, resize 120x35, Esc"
+  },
+  "sizes": [
+    "120x35",
+    "80x24",
+    "48x16"
+  ],
+  "screens": {
+    "before": "'It stopped: image_build_failed. Retry it once that is resolved.' then 'Diagnostic: present default devShell invalid: error: expected a derivation, got an integer'",
+    "after-build": "'Building the image of its source commit failed; the diagnostic says why. A devShell the commit declares invalid needs a session from a corrected commit. Retry it once that is resolved.' (3 lines at 120x35 and 80x24, 5 at 48x16) then the same Diagnostic line (1, 2 and 3 lines)",
+    "after-changed": "'The host's image builder configuration changed since this creation began; restore it, or discard the session. Retry it once that is resolved.' (2 lines at 120x35 and 80x24, 4 at 48x16) then 'Diagnostic: pinned image builder selection unavailable' (1, 1 and 2 lines)",
+    "after2-build": "'The image of its source commit did not build; the diagnostic says why. For a fault in the commit, such as an invalid devShell, clean up this creation and create a session from a fixed commit; otherwise fix the cause. Retry it once that is resolved.' (3 lines at 120x35, 4 at 80x24, 6 at 48x16) then the Diagnostic (1, 2 and 3 lines)",
+    "after2-changed": "'The host's image builder configuration changed since this creation began. To use the new one, clean up this creation and create the session again; otherwise restore the configuration. Retry it once that is resolved.' (3 lines at 120x35 and 80x24, 6 at 48x16) then 'Diagnostic: pinned image builder selection unavailable' (1, 1 and 2 lines)"
+  },
+  "passed": "In both wordings the sentences are complete at every size and wrap between words; the Diagnostic keeps its own labelled line; the layout matches step 3's page (sentence paragraph, Diagnostic line, the two fixed lines, key hint); Esc returns to the Sessions page as in step 3. Compared with the before frame, the page names the cause instead of the code. With the reworded sentences each next step reads as one branch, and the blocked status's 'Retry it once that is resolved.' follows the branch it belongs to",
+  "final_files_sha256": {
+    "internal/errtext/errtext.go (reworded, after2 runs)": "0364b1e3f87eae5c60c7dd7c7b34f296946d88f332c385391d8f4cfba9c9a949",
+    "internal/errtext/errtext.go (9571983, first after runs)": "7054fd7016ce31c7466d482d30f0d8b0a93b848c43121eaac1f986a10e864d61",
+    "internal/tui/view.go": "d1a3c825984ad753b406b765d60d8f465a13d6440cf3b5a155114b69f4094474",
+    "internal/tui/model.go": "93859af18f5002c525ee606fe2ffc9af0cfbed9250826719990a52df9438f06a",
+    "tests/integration/cmd/tui-mock/main.go": "80c72fed02658f8984983b88be1402c873a266af5972fbac854e944aaf0d5b43",
+    "tests/integration/cmd/tui-mock/main.go (after-build, before)": "15efc9559a19befc499fac3af16d69aa103229f4b4c5515a490c3fa14688d304",
+    "tests/integration/cmd/tui-mock/main.go (after-changed)": "e2d370361f773291258293a607b55908885115707f9f19499a2bd112ad3a0491",
+    "dev/tui-mock": "ee83826cd9b27523c21d1641f8333b6bf9bf8a461c17ae7ec560a2f24c69ccc7",
+    "dev/tui-test-shell.nix": "c51028bb02a84fb20da3c3be84d17156f0f85b1e0c1e602c7b20b2e18229b505"
+  },
+  "component_tests": "go test ./internal/errtext ./internal/tui ./tests/integration/cmd/tui-mock: ok on the head copy and ok on an export of the working tree with the reworded errtext.go (9571983 plus uncommitted errtext.go, docs/user-guide.md and docs/debts/structure.md edits); go test ./tests/integration/cmd/tui-mock on after-build: ok",
+  "tui_tests": "just tui-tests: 8 terminal, 9 observer and 12 mock tests OK on the unmodified head copy (32.8 s wall under host load) and on the working-tree export with the reworded errtext.go (26.5 s)",
+  "findings": {
+    "I1": "fixed by the rewording (after2-build-0003): the first wording told the user that an invalid devShell needs a session from a corrected commit, then appended 'Retry it once that is resolved.' and offered 'r retry operation', while Retry builds the same captured commit again. The page now reads 'For a fault in the commit, such as an invalid devShell, clean up this creation and create a session from a fixed commit; otherwise fix the cause. Retry it once that is resolved.', so Retry follows the branch it fits, matching the prototype probe's split between 'Exact Retry' and 'Try again with changes'",
+    "I2": "fixed by the rewording (after2-changed-0003): 'restore it, or discard the session. Retry it once that is resolved.' put Retry after the discard branch. The page now reads 'To use the new one, clean up this creation and create the session again; otherwise restore the configuration. Retry it once that is resolved.'",
+    "I3": "fixed in the wording (code reading, not rendered: the mock has no creating session): both sentences sent the user to discard the blocked creation, which the TUI refuses ('Removal is unavailable while the session is creating.', internal/tui/model.go:802-808, condition 'creating' from internal/daemon/lifecycle.go:1382) and session.removal.preview refuses (internal/daemon/removal_preview.go:47). They now say 'clean up this creation', the failed-create cleanup (session.create.cleanup.*) that docs/user-guide.md's 'Failed Create needs different inputs' row names. The TUI does not offer that cleanup; the caller recorded this as outside this change",
+    "I4": "open (pre-existing layout O3): at 48x16 the page draws 8 body rows and leaves 6 empty. With the reworded sentences, image_build_failed takes 6 lines and its Diagnostic 3, so they never fit the 8 rows together: the first screen ends at 'build; the diagnostic says why. For a fault', six j presses show the whole sentence and the Diagnostic's first two lines, and one more shows 'an integer' with the sentence's first line scrolled off. image_builder_changed takes 6 lines and its Diagnostic 2: the first screen ends at 'changed since this creation began. To use', and six j presses show both whole. The first wording took 5 and 4 lines; the before fallback took 2 and was whole on the first screen Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): the page now uses every row down to its controls and two feedback rows, 12 at 48x16; image_build_failed's whole sentence is on the first screen (tui-fixes image-0004) and G shows the Diagnostic, the note and the Retry line whole (image-0005)"
+  },
+  "limitations": "The fixture operation has no session UUID, so 'Session:' is empty; a real blocked creation names its session. Retry, a failed status ('It ended; start a new request.') and the cleanup path (I3) were not rendered",
+  "findings_open": 0
+}

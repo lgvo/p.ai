@@ -1,0 +1,48 @@
+{
+  "date": "2026-10-01",
+  "reviewer": "independent fresh-context subagent /root/creation_enter_review",
+  "base_revision": "0dfc4adc0d7d40c668c3370820133e82f083cd36",
+  "build_state": "unstaged creation Enter change; product source hashes match implementation checkpoint",
+  "binary_sha256": "8583448326d084c1f32c350ecb669eeb1af4bbfc9e1604fc23854d192222d58a",
+  "setup": "fresh owned ./dev/tui-mock --dataset small --theme dark through persistent tui-observe.py PTY; adaptive LLM actions from current screens",
+  "dimensions": [
+    [
+      80,
+      24
+    ],
+    [
+      48,
+      16
+    ]
+  ],
+  "raw_frames": "/tmp/p-creation-reviewer-evidence",
+  "result": "accepted; zero code or experience findings",
+  "paths": [
+    "new branch: source \u2192 name \u2192 review \u2192 Back preserves name \u2192 edit \u2192 Enter \u2192 readiness \u2192 tmux terminal",
+    "compact creation review: scroll bottom reveals captured source/tip and keeps Enter/Back controls readable",
+    "local project: empty origin \u2192 review \u2192 Enter \u2192 readiness \u2192 main terminal",
+    "retained branch: direct review \u2192 Back to branch choices \u2192 reselect \u2192 Enter \u2192 readiness \u2192 terminal",
+    "Stop: existing default-No prompt \u2192 Enter declines; target remains running"
+  ],
+  "effects": "mock.inspect recorded two session.create and one project.create with reviewed values; zero session.stop",
+  "tests": "implementation focused Go tests and 27-case just tui-tests passed; root audited results; independent review did not rerun broad tests",
+  "scope": "production TUI/mock-socket navigation and local tmux handoff; no native Incus/Git/systemd claim; prototype old default-No creation intentionally superseded by explicit user direction",
+  "cleanup": {
+    "tui_exit_code": 0,
+    "owned_observer_socket_absent": true,
+    "owned_fixture_directory_absent": true
+  },
+  "source_sha256": {
+    "internal/tui/model.go": "b81805ee5ca68bc022b8d8e8967c640b20aaab9a389544d8abdcf0bdbdedfc3f",
+    "internal/tui/view.go": "a40a671c1e015b2895ca2cae8027cbb8c17c69b143bc4929053f64039ee36ef2",
+    "internal/tui/workflows.go": "82f65476d2738476b9fa1a30885b54bb103646c25697d6b87c7e797b5d9a579a"
+  },
+  "artifacts": {
+    "0009-new-review-48-end.png": "9e729f52d6a05d0141b64a1068042f3d3a44028e8f9f58ab3b2313a25c9c7f3d",
+    "0010-new-review-back.png": "c700d3ab54e19751d79703756c3a7999951f76f60d9b10faa6a2d0f9cc4fe756",
+    "0014-new-created-terminal.png": "e2d915823a88a81de0ad00a69399cb59efef35f4ca0087cc84069404249401a0",
+    "0016-stop-still-default-no.png": "44195c159a4604cf58857f6a25fab4a71d7f971a0da53e68268de3cb2199d647",
+    "actions.ndjson": "eef23f703959fdc470804ee23dfc43634d3a8e662bf5fe2cbf17a58f0c817eb8",
+    "effects.json": "075f7f2e78004adbcdba8ed772d6d65318e7c66c06fee641bdf0cde3f14038a3"
+  }
+}

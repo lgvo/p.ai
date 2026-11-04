@@ -1,0 +1,201 @@
+# P — remaining implementation work
+
+Historical implementation checklist for P's broader design.
+
+> **Status: tracker, not authority.** Subject documents own behavior. This list
+> points to them and must not introduce a competing contract.
+
+The CLI-first implementation has automated acceptance evidence;
+authenticated Codex acceptance remains pending the user's manual test. Exact
+scope, evidence, safe refusal boundaries and the acceptance procedure are in
+[implementation progress](implementation-progress.md). The historical checklist
+below includes delivered, partially delivered and deferred design work. Its
+unchecked items are not additional CLI-first delivery gates; subject contracts
+and the confirmed MVP scope govern support claims.
+
+## Current interface and developer workflow work
+
+The [TUI experience and developer workflow plan](tui-developer-workflow-plan.md)
+sequences prototype alignment, a reusable sample, CLI/API journeys and later
+TUI integration coverage with live LLM navigation review for every UI change.
+The initial provisioned-sample plan is complete, including adaptive live review,
+fresh-context review and all 58 serial VM scenarios. The real committed-devShell
+extension retains its separate offline-input-resolution milestone. Results are in
+[implementation progress](implementation-progress.md#tui-and-three-service-developer-workflows--2026-09-30).
+
+## Design readiness
+
+The cross-document lifecycle decisions needed to begin implementation are now
+owned by the design set:
+
+- [project lifecycle](project-lifecycle.md) owns explicit project creation,
+  origin association, blank/empty bootstrap, retained branches, and bulk
+  project deletion;
+- [session lifecycle](session-lifecycle.md) owns session operations, exact
+  Retry, replacement creation, destructive preflight, and recovery;
+- [runtime and isolation](runtime-isolation.md) owns Incus, systemd, the
+  persistent interactive host, attachment entrypoint, policy snapshots, and
+  grants;
+- [communication boundaries](communication-boundaries.md) owns Git, RPC, SSH,
+  origin, attachment, build, gateway, and event-handler channel division;
+- [session observability](session-observability.md) owns the four public facts,
+  status reduction, attachment presence, and typed P events;
+- [environment building](environment-building.md) owns Nix selection,
+  realization, activation, and commit images and their lifetime;
+- [model gateway](model-gateway.md) retains the post-MVP Bifrost design; and
+- [technology stack](technology-stack.md) owns implementation interfaces and
+  library/tool choices.
+
+The [current prototype decisions](../../.prototype/tui-options/DECISIONS.md)
+record the reviewed session-browser layout and controls. Production integration
+and the agent/service extensions remain unresolved; prototype presentation
+does not change owner-document lifecycle semantics.
+
+## Foundation
+
+- [ ] Scaffold the Go module, package boundaries, daemon entrypoint, thin
+  client/TUI entrypoint, migration runner, and release metadata.
+- [ ] Implement structured configuration loading and validation with trusted
+  instance/project authority and immutable session policy snapshots.
+- [ ] Implement SQLite migrations, transaction helpers, operation/idempotency
+  records, minimal project-deletion records, and restart reconciliation.
+- [ ] Implement typed errors, bounded/redacted diagnostics, structured logging,
+  and the versioned `EventHandler` interface with the NDJSON file-log handler.
+- [ ] Establish fake Git, runtime, environment, agent, and clock adapters for
+  deterministic lifecycle tests.
+
+## Projects, Git, and origin
+
+- [ ] Implement explicit project creation from a validated SSH origin or as a
+  blank repository; never infer a host checkout.
+- [ ] Implement contact-before-commit origin association, explicit origin
+  change/removal, refresh, and local-only behavior.
+- [ ] Implement blank/empty-origin bootstrap on unborn `main`, including first
+  push and the committed-source requirement for later sessions.
+- [ ] Provision one bare repository per project, hidden/reserved namespaces,
+  per-session principals, the read-only host principal, and unconditional
+  fast-forward-only update hooks.
+- [ ] Implement retained-branch list/source/fetch/rename/fast-forward-publish/
+  loss-preview/delete operations.
+- [ ] Implement explicit origin publication with fresh observation, one
+  destination ref, no force, and unknown-outcome reporting.
+- [ ] Implement **Delete project and all P data** with aggregate preflight,
+  confirmed attachment termination, minimal durable deletion record,
+  ensure-absent retry, and incomplete cleanup retaining identity and restrictions
+  while Incus is unavailable. Abandonment and its tombstone/orphan-cleanup/forget
+  workflow are outside MVP.
+
+## Plugin contract
+
+- [x] Reconcile the package/activation foundation with the confirmed
+  [product direction](../PRODUCT.md): define the trusted P-core boundary and how
+  authoritative lifecycle operations invoke plugins without delegating policy,
+  grants, recovery, or user confirmation.
+- [x] Assign [the plugin contract](plugin-contract.md) as the detailed owner
+  for the common plugin framework; capability-specific schemas follow with
+  their implementation slices.
+- [ ] Define packaging, process/isolation model, transport, discovery,
+  installation/update/removal, compatibility/versioning, and failure behavior.
+- [ ] Define capability manifests and trusted activation so repository or
+  agent-authored code cannot grant itself host, runtime, credential, or
+  lifecycle authority.
+- [ ] Define internal session services supervised through systemd, external
+  session services provided through scoped network bindings and service-native
+  authentication, and host-side capabilities that are never exposed to the
+  session.
+- [ ] Express the tmux persistent host, Git source/session service, structured
+  file-log handler, and Codex adapter as secure first-party plugins selected
+  and composed automatically by default setup; the Incus runtime is the
+  built-in runtime driver, not a plugin.
+- [ ] Provide an agent-usable authoring, validation, and test workflow that
+  does not require rebuilding P core.
+- [ ] Document the usable public interfaces; a separately agent-authored
+  plugin is evidence to pursue after MVP rather than a release gate.
+
+## Runtime and environments
+
+- [ ] Implement the confined Incus backend, deterministic labels/names,
+  non-activating stopped-workspace access, endpoint mounts, and
+  unfamiliar-runtime identity checks without silent adoption.
+- [ ] Build the pinned base image with systemd, Nix, Git/SSH, tmux, the runtime
+  kit, `p-session.target`, `p-interactive.service`, and the root-owned
+  `/usr/libexec/p/attach` entrypoint.
+- [ ] Implement systemd activation/host supervision, journal diagnostic
+  capture, and container shutdown on clean or failed persistent-host exit.
+- [ ] Implement the Nix image builder, compatibility gate, immutable commit
+  images and their release, private session roots, and blank bootstrap
+  base-image path.
+- [ ] Implement typed filesystem/network grants and policy comparison as
+  `current`, `outdated`, or `invalid`, including guided recreation.
+- [ ] Complete every relevant real-machine gate in
+  [development validations](development-validations.md).
+
+## Session lifecycle and observability
+
+- [ ] Implement Create with committed source plus the one bootstrap exception,
+  exact immutable Retry, supported superseding **Try again with changes** and
+  validated cleanup-then-new-Create fallback.
+- [ ] Implement Start, Attach/Detach, Rename, Stop, Discard, Delete, and
+  startup/restart reconciliation exactly as owned by
+  [session lifecycle](session-lifecycle.md).
+- [ ] Validate expected/actual branch/upstream mismatch diagnostics, blocked
+  dependent actions and manual Git correction/recheck without automatic reset.
+- [ ] Validate unavailable Incus retains identity, durable cleanup and restrictions
+  until the confirmed operation can resume. Abandonment is outside MVP.
+- [ ] Implement pending-to-confirmed attachment leases whose loss tears down
+  only the temporary transport and never the persistent host.
+- [ ] Implement the four independent public facts: `session_condition`,
+  `attached_count`, `latest_unattended_condition`, and `policy_condition`.
+- [ ] Complete Codex acceptance: the selected adapter, event fixtures,
+  clear-on-confirmed-first-entry reduction, and dummy credential isolation and
+  Stop/Start checks pass. Public Discard/Delete dummy cleanup passed VM31/32;
+  authenticated execution and native hook reporting are reserved for the
+  user's final manual test. Other agent adapters are post-MVP.
+- [ ] Emit reduced lifecycle/status/policy events through `EventHandler`;
+  handler failure must not roll back authoritative operations.
+
+## Post-MVP model gateway
+
+- [ ] Pin and validate a Bifrost release and route inventory before enabling
+  model access.
+- [ ] Implement idempotent per-session key ensure/persist/deliver/revoke with
+  positive inference probes and negative administrative/non-inference probes
+  during initial creation.
+- [ ] Preserve established Start/Attach behavior during a Bifrost outage while
+  reporting model access as degraded.
+- [ ] Validate the retained Bifrost design before claiming managed model
+  access; it is not part of MVP Codex authentication.
+
+## TUI and clients
+
+- [x] Build a throwaway interaction prototype using local fixture data; no live
+  RPC transport is connected.
+- [ ] Test project/session overview density, creation and **Try again with
+  changes**, policy warnings/diffs, retained branches, destructive previews,
+  bulk project deletion progress/retry, and attach/switch/detach behavior.
+- [x] Record the reviewed prototype layout/navigation/key map in the
+  [current decision record](../../.prototype/tui-options/DECISIONS.md).
+- [ ] Resolve real attachment, agent inventory/preview, and project-service
+  integration boundaries before implementing the thin production TUI.
+- [ ] Implement the local Unix RPC transport and trusted attachment helper.
+
+## Post-MVP clients
+
+- [ ] Implement client-initiated SSH-to-Unix RPC and attachment transport.
+- [ ] Package native remote clients only after the shared transport contract is
+  validated.
+
+## Release closure
+
+- [ ] Turn every acceptance criterion and development validation into an
+  automated test, recorded integration result, or explicit support gate.
+- [ ] Pin dependency/protocol versions and complete distribution license checks.
+- [x] Add NixOS/Incus packaging, installation guidance, service definitions and
+  diagnostics. VM55 validates the hardened network:none service; public-egress
+  remains the separate owner-run daemon path. Backup/restore and software
+  upgrade/rollback are outside MVP.
+- [ ] Validate the documented cleanup-then-Create fallback for supported complex
+  failed creations; preserve validated integrated replacement and refuse unsafe
+  cleanup without deleting uncertain resources.
+- [ ] Re-read all summaries after implementation evidence and update any claim
+  that proved narrower than the design.

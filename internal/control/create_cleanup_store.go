@@ -1,0 +1,235 @@
+package control
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/lgvo/p.ai/internal/api"
+)
+
+// BeginCreateCleanup records the run req of an early cleanup, whose plan has
+// change hash hash, after verify planned it again under the Git authority.
+func (s *Store) BeginCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	if ev.Review.Runtime != nil {
+		return api.Operation{}, ErrInvalid
+	}
+	return s.beginCreateCleanup(ctx, req, ev, hash, verify)
+}
+
+// BeginAssembledCreateCleanup is BeginCreateCleanup for an assembled
+// creator's cleanup, which deletes its stopped container.
+func (s *Store) BeginAssembledCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	if !validAssembledCleanupReview(ev) {
+		return api.Operation{}, ErrInvalid
+	}
+	return s.beginCreateCleanup(ctx, req, ev, hash, verify)
+}
+
+func (s *Store) beginCreateCleanup(ctx context.Context, req DiscardRequest, ev CreateCleanupEvidence, hash string, verify func(context.Context) error) (api.Operation, error) {
+	p := ev.Review
+	assembled := p.Runtime != nil
+	expiry, ok := api.ParseChangeTag(req.IfMatch)
+	if req.Key == "" || len(req.Key) > 128 || !validUUID(req.UUID) || !ok || !validFingerprint(hash) || !validUUID(ev.InstanceUUID) || !validUUID(p.OldOperationID) || !validFingerprint(p.OldEvidenceSHA256) || !validFingerprint(p.PolicySHA256) || !validFingerprint(p.ImageFingerprint) || !p.AssignedBranch.Observed || !p.AssignedBranch.Exists || !validOID(p.AssignedBranch.OID) || verify == nil {
+		return api.Operation{}, ErrInvalid
+	}
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	defer s.gitAuthority.Unlock()
+	raw, _ := json.Marshal(req)
+	if prior, e := s.GetOperationByKey(ctx, req.Key); e == nil {
+		if prior.Kind != "session.create.cleanup" || digest(prior.Request) != digest(raw) {
+			return api.Operation{}, KeyReused()
+		}
+		return prior, nil
+	} else if !errors.Is(e, ErrNotFound) {
+		return api.Operation{}, e
+	}
+	if !time.Now().Before(expiry) {
+		return api.Operation{}, Stale(api.ReasonExpired)
+	}
+	if err := verify(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return api.Operation{}, err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	old, err := operationByIDTx(ctx, tx, p.OldOperationID)
+	if err != nil {
+		return api.Operation{}, reviewChanged(err)
+	}
+	var request ReserveSessionRequest
+	oldEv, e := Evidence(old)
+	if e != nil || old.Kind != "session.create" || old.Status != "blocked" || old.SessionUUID != req.UUID || old.Project != p.OldRequest.Project || old.Phase != p.OldPhase || digest(old.Evidence) != p.OldEvidenceSHA256 || json.Unmarshal(old.Request, &request) != nil || request != p.OldRequest || oldEv.PolicySHA256 != p.PolicySHA256 || oldEv.ImageFingerprint != p.ImageFingerprint {
+		return api.Operation{}, reviewChanged(nil)
+	}
+	if !assembled && (!SafeCreateCleanupEvidence(request, oldEv) || !SafeCreateCleanupPhase(old)) {
+		return api.Operation{}, reviewChanged(nil)
+	}
+	if assembled {
+		session, e := getSessionTx(ctx, tx, req.UUID)
+		if e != nil || digest(old.Request) != p.OldRequestSHA256 || AssembledCreationForCleanup(session, old, p.ImageFingerprint) != nil {
+			return api.Operation{}, reviewChanged(e)
+		}
+	}
+	var registry, branch, policy string
+	if err = tx.QueryRowContext(ctx, `SELECT registry_state,branch,policy_sha256 FROM sessions WHERE uuid=? AND project_path=?`, req.UUID, old.Project).Scan(&registry, &branch, &policy); err != nil || registry != "creating" || branch != request.Branch || p.AssignedBranch.Ref != "refs/heads/"+branch || policy != p.PolicySHA256 {
+		return api.Operation{}, reviewChanged(err)
+	}
+	var count int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_ref_guards WHERE project_path=? AND branch=?`, old.Project, branch).Scan(&count); err != nil || count != 0 {
+		return api.Operation{}, reviewChanged(err)
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_principals WHERE session_uuid=?`, req.UUID).Scan(&count); err != nil {
+		return api.Operation{}, err
+	}
+	local := p.Provisional.Cleanup
+	if local == nil {
+		if count != 0 {
+			return api.Operation{}, reviewChanged(nil)
+		}
+	} else {
+		if !local.Valid() || local.Completed || local.OldUUID != req.UUID || local.OldOperationID != old.ID || local.OldImageFingerprint != p.ImageFingerprint || count != 1 {
+			return api.Operation{}, reviewChanged(nil)
+		}
+		var fp, role, project string
+		var active int
+		if err = tx.QueryRowContext(ctx, `SELECT fingerprint,role,project_path,active FROM git_principals WHERE session_uuid=?`, req.UUID).Scan(&fp, &role, &project, &active); err != nil || fp != local.KeyFingerprint || role != "session" || project != old.Project || active != 1 {
+			return api.Operation{}, reviewChanged(err)
+		}
+	}
+	if !time.Now().Before(expiry) {
+		return api.Operation{}, Stale(api.ReasonExpired)
+	}
+	id, err := newUUID()
+	if err != nil {
+		return api.Operation{}, err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if !assembled {
+		if _, err = j.update(ctx, old.ID, `UPDATE operations SET status='superseded',phase='superseded',reason='',diagnostic=?,updated_at=? WHERE id=? AND status='blocked'`, "cleanup by "+id, now, old.ID); err != nil {
+			return api.Operation{}, err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE sessions SET registry_state='removing' WHERE uuid=? AND registry_state='creating'`, req.UUID); err != nil {
+			return api.Operation{}, err
+		}
+		if _, err = tx.ExecContext(ctx, `UPDATE git_principals SET active=0 WHERE session_uuid=? AND role='session'`, req.UUID); err != nil {
+			return api.Operation{}, err
+		}
+	}
+	evidence, _ := json.Marshal(ev)
+	if len(evidence) > 16384 {
+		return api.Operation{}, ErrInvalid
+	}
+	phase, committed := "local-cleanup", true
+	if assembled {
+		phase, committed = "validated", false
+	}
+	rec := operationRecord{ID: id, Key: req.Key, Kind: KindCreateCleanup, Project: old.Project, Session: req.UUID, Request: raw,
+		Intent: api.OperationIntent{Project: old.Project, Session: req.UUID, Branch: p.OldRequest.Branch}, Phase: phase, Committed: committed, Evidence: evidence, ChangeHash: hash, Now: now}
+	if err = j.insert(ctx, rec); err != nil {
+		return api.Operation{}, classifyWrite(err)
+	}
+	if _, err = tx.ExecContext(ctx, `INSERT INTO git_ref_guards(project_path,branch,operation_id) VALUES(?,?,?)`, old.Project, branch, id); err != nil {
+		return api.Operation{}, classifyWrite(err)
+	}
+	if err = j.commit(ctx); err != nil {
+		return api.Operation{}, err
+	}
+	return rec.operation(), nil
+}
+
+func (s *Store) CompleteCreateCleanup(ctx context.Context, id string, verify func(context.Context, CreateCleanupEvidence) error) error {
+	if verify == nil {
+		return ErrInvalid
+	}
+	if err := s.lockGitAuthority(ctx); err != nil {
+		return err
+	}
+	defer s.gitAuthority.Unlock()
+	// Resource/Git readers may query this Store, so proof precedes the SQLite
+	// transaction while the caller retains the session and Git authority locks.
+	observed, err := s.GetOperation(ctx, id)
+	if err != nil {
+		return err
+	}
+	if observed.Status == "completed" && observed.Phase == "cleaned" {
+		return nil
+	}
+	var ev CreateCleanupEvidence
+	if observed.Kind != "session.create.cleanup" || observed.Status != "running" || observed.Phase != "local-complete" || json.Unmarshal(observed.Evidence, &ev) != nil || !ev.LocalComplete || ev.Review.Runtime != nil && !ev.RuntimeAbsent {
+		return ErrConflict
+	}
+	if err = verify(ctx, ev); err != nil {
+		return err
+	}
+	j, err := s.beginJournal(ctx)
+	if err != nil {
+		return err
+	}
+	defer j.Rollback()
+	tx := j.Tx
+	current, err := operationByIDTx(ctx, tx, id)
+	if err != nil || current.Status != "running" || current.Phase != "local-complete" || digest(current.Evidence) != digest(observed.Evidence) {
+		return ErrConflict
+	}
+	var registry, branch, owner string
+	if err = tx.QueryRowContext(ctx, `SELECT registry_state,branch FROM sessions WHERE uuid=? AND project_path=?`, observed.SessionUUID, observed.Project).Scan(&registry, &branch); err != nil || registry != "removing" || branch != ev.Review.OldRequest.Branch {
+		return ErrConflict
+	}
+	if err = tx.QueryRowContext(ctx, `SELECT operation_id FROM git_ref_guards WHERE project_path=? AND branch=?`, observed.Project, branch).Scan(&owner); err != nil || owner != id {
+		return ErrConflict
+	}
+	var active int
+	if err = tx.QueryRowContext(ctx, `SELECT count(*) FROM git_principals WHERE session_uuid=? AND active=1`, observed.SessionUUID).Scan(&active); err != nil || active != 0 {
+		return ErrConflict
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM git_principals WHERE session_uuid=? AND active=0 AND role='session'`, observed.SessionUUID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM sessions WHERE uuid=? AND registry_state='removing'`, observed.SessionUUID); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, `DELETE FROM git_ref_guards WHERE operation_id=?`, id); err != nil {
+		return err
+	}
+	if _, err = j.update(ctx, id, `UPDATE operations SET status='completed',phase='cleaned',reason='',diagnostic='',updated_at=? WHERE id=?`, time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		return err
+	}
+	if err = j.commit(ctx); err != nil {
+		return err
+	}
+	s.forgetSession(observed.SessionUUID)
+	return nil
+}
+
+func operationByIDTx(ctx context.Context, tx *sql.Tx, id string) (api.Operation, error) {
+	var key string
+	if err := tx.QueryRowContext(ctx, `SELECT idempotency_key FROM operations WHERE id=?`, id).Scan(&key); err != nil {
+		return api.Operation{}, err
+	}
+	return getOperationTx(ctx, tx, key)
+}
+func monotonicCreateCleanupEvidence(oldRaw, newRaw json.RawMessage) error {
+	var old, next CreateCleanupEvidence
+	if json.Unmarshal(oldRaw, &old) != nil || json.Unmarshal(newRaw, &next) != nil {
+		return ErrInvalid
+	}
+	if old.LocalComplete && !next.LocalComplete || old.RuntimeAbsent && !next.RuntimeAbsent {
+		return ErrConflict
+	}
+	old.LocalComplete, next.LocalComplete = false, false
+	old.RuntimeAbsent, next.RuntimeAbsent = false, false
+	a, _ := json.Marshal(old)
+	b, _ := json.Marshal(next)
+	if digest(a) != digest(b) {
+		return ErrConflict
+	}
+	return nil
+}

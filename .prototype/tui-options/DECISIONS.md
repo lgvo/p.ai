@@ -277,11 +277,12 @@ The following need design/integration work before production claims:
 - Real terminal attachment, PTY lifecycle, input forwarding, and potential
   conflicts with nested tmux/prefix controls.
 - Agent instance discovery, report attribution, conversation preview sourcing,
-  freshness, and behavior while attached. The current authoritative MVP
-  observability model retains one latest unattended signal, not an inventory.
+  freshness, and behavior while attached. The MVP observability design, now
+  archived, kept one latest unattended signal, not an inventory.
 - Project-service discovery, permissions, systemd control, and journal access.
-  The current MVP design does not orchestrate project services. The accepted
-  UI exploration does not by itself settle these product/API boundaries.
+  The MVP design, now archived, did not orchestrate project services. The
+  accepted UI exploration does not by itself settle these product/API
+  boundaries.
 - Complete creation, policy, retained-branch, and destructive-action flows in
   the new browser; production RPC integration remains unimplemented.
 - Broader manual terminal/viewport review, including long identities, many

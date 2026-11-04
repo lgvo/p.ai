@@ -1,0 +1,231 @@
+{
+  "date": "2026-10-01",
+  "kind": "interactive-LLM-review",
+  "revision": "0dfc4adc0d7d40c668c3370820133e82f083cd36",
+  "worktree_sha256": {
+    "dev/vm/run-console.sh": "6ca258b1e8d26aa3661f46a49d7f3436dec4789b61161de8b88627bcc43e36b0",
+    "dev/demo.nix": "f02588d6bb886107dd33a3858933551c4a1fece2a84a92529156a86d4217bd64",
+    "dev/vm/flake.nix": "319b8954fe5c47944a31672ac3c1d2b237e6b956d47ee3d354501ad578af75fa",
+    "dev/package.nix": "fe03ea82e87c1b6308006321ff6d0bf228b2ffaad15546be2ce8a1c8c53cd678",
+    "tests/unit/vm_console_test.py": "6e834a9921fe5dec48a39743d51beaaa10ff07ebfa14ec732dc02e31ffe62b71",
+    "tests/integration/tui-observe.py": "919097db012789332c92a995bffaf870d39a5528d863fd88b90003b41ef42b85",
+    "tests/integration/tui-observe-test.py": "97232e55f5a10f398cab8b09ace2953bf684a39ae6e335a9ef3755f3bc5c4b65",
+    "internal/tui/model.go": "b81805ee5ca68bc022b8d8e8967c640b20aaab9a389544d8abdcf0bdbdedfc3f",
+    "internal/tui/view.go": "a40a671c1e015b2895ca2cae8027cbb8c17c69b143bc4929053f64039ee36ef2",
+    "internal/tui/workflows.go": "82f65476d2738476b9fa1a30885b54bb103646c25697d6b87c7e797b5d9a579a"
+  },
+  "builds": {
+    "prototype": {
+      "command": "go build ./.prototype/tui-options",
+      "binary_sha256": "c2c3dba7f0f2e7b250a274f0033f2c4a9e5f0374b8c84827a549e2b1301bbe7f",
+      "data": "simulated portfolio"
+    },
+    "before_product": {
+      "command": "go build ./cmd/p",
+      "binary_sha256": "8583448326d084c1f32c350ecb669eeb1af4bbfc9e1604fc23854d192222d58a",
+      "runner": "/nix/store/y63ck9v9qvp9sgnk8mlmzdpjl0pp1zam-p-demo-vm/bin/p-demo-vm"
+    },
+    "after_product": {
+      "command": "just lab-public",
+      "installed_package": "/nix/store/13sczr4m3hk163vjkfpffcdw7f8h5p1n-p-0.1.0-dev",
+      "binary_sha256": "a221a931d8440ccead65483d65b351bad0d345fe87630822ec8d9c48937498aa",
+      "build_and_console_log": "after-native/terminal.ansi"
+    }
+  },
+  "instance": {
+    "state": "persistent; no reset",
+    "disk": ".cache/p-vm/demo-public/disk.qcow2",
+    "sessions_preserved": {
+      "notes/main": "518a9a25-561d-4c57-900d-cb101ffda071",
+      "notes/test-note-feature": "1dca4948-6056-4a54-9499-6cf9872e78a0",
+      "p-ai/main": "88ddf7d0-e40e-4f7c-80cc-34ebfe164f0c"
+    },
+    "application_command": "python3 examples/notes/client.py health",
+    "application_response": {
+      "status": "ready",
+      "database": "ready"
+    },
+    "writes_or_lifecycle_removals": false
+  },
+  "terminal": {
+    "term": "xterm-256color",
+    "dimensions": [
+      [
+        120,
+        35
+      ],
+      [
+        80,
+        24
+      ],
+      [
+        48,
+        16
+      ]
+    ],
+    "serial_resize": "exit TUI, resize outer observer, match guest stty, reopen TUI; automatic propagation not claimed"
+  },
+  "transport_provenance": {
+    "before_native": "Temporary observation helper removed recurring OPOST normalization; its initial OPOST clearing remained. QEMU restored ONLCR and visible corruption reproduced. Preboot diagonal output is not defect acceptance evidence.",
+    "after_native": "Actual just lab-public through production wrapper; production observer does not modify output modes.",
+    "local_mock": "Direct local production TUI stayed clean; synthetic QEMU flags did not establish reproduction.",
+    "mock_error": "First injection consumed by background poll (after-mock label is provisional); immediate configure+S in after-mock-error produced the inspected failure."
+  },
+  "llm_review": {
+    "result": "passed",
+    "actions": {
+      "prototype": "prototype/actions.ndjson",
+      "before-mock": "before-mock/actions.ndjson",
+      "before-native": "before-native/actions.ndjson",
+      "after-native": "after-native/actions.ndjson",
+      "after-mock": "after-mock/actions.ndjson",
+      "after-mock-error": "after-mock-error/actions.ndjson"
+    },
+    "findings": [
+      {
+        "defect": "QEMU ONLCR displaced cursor-relative LF to column zero",
+        "resolution": "Shared launch wrapper clears ONLCR before QEMU saves modes; original modes restored after exit."
+      },
+      {
+        "defect": "Observer recurring output-mode correction concealed real defect",
+        "resolution": "Removed initial and recurring output-mode mutations; regressions establish faithful modes/output."
+      }
+    ],
+    "affected_tasks": [
+      "ready/loading selection",
+      "empty services",
+      "three active native services",
+      "native database journal",
+      "entry/readiness/health/detach/re-entry",
+      "80x24 overview/complete details",
+      "48x16 overview/details scrolling",
+      "mock unavailable inventory and Back"
+    ]
+  },
+  "automated": {
+    "packaged_build": {
+      "command": "just lab-public",
+      "go_checks": "passed",
+      "python_unit_tests": 36,
+      "console_pty_tests_included": 6
+    },
+    "tui_tests": {
+      "command": "just tui-tests",
+      "terminal": 8,
+      "observer": 9,
+      "mock": 12,
+      "total": 29,
+      "result": "passed",
+      "log": "tui-tests.log"
+    },
+    "shellcheck": "passed",
+    "bash_syntax": "passed",
+    "git_diff_check": "passed"
+  },
+  "independent_review": {
+    "agent": "/root/creation_enter_implement",
+    "fresh_context": false,
+    "reason": "New-agent thread limit reached; existing agent reused for independent read-only code, tests and native-frame review.",
+    "console_pty_tests": 6,
+    "observer_tests": 9,
+    "remaining_code_findings": 0,
+    "remaining_native_visual_findings": 0,
+    "resolved_during_review": "Forward cancellation before restoring terminal modes; wrapper child PID reaches exec QEMU.",
+    "remaining_documentation_findings": 0,
+    "remaining_mock_error_visual_findings": 0,
+    "implementer_agreement": "accepted; no concrete remaining concerns"
+  },
+  "shutdown": {
+    "before_vm_exit_code": 0,
+    "after_vm_exit_code": 0,
+    "owned_observers_closed": true,
+    "public_lock_free": true,
+    "live_qemu_count": 0
+  },
+  "limits": [
+    "Selected handoff captures do not prove every intermediate byte/frame.",
+    "Native error refusal was not injected; mock feedback acceptance is separate.",
+    "No backend lifecycle semantics changed and no complete native scenario suite was rerun."
+  ],
+  "artifact_sha256": {
+    "prototype/0001-start.png": "2027bd98bb005ad5738505516d3de7246778f901eba0d44ad24c91806a85f94a",
+    "prototype/0002-prototype-move.png": "a691d8b5c9e38840dce3589baf5bf427f7d4ed440b9f5345bbad2a42c0c5ef33",
+    "prototype/0003-prototype-80.png": "c077d818b1eae36e6cc6a053b63b7b343afad88054cdaab55ba4ad6b3ef2ab54",
+    "prototype/0004-prototype-48.png": "859cedec994ef22563411e49df6f2197b829fe0fc0dd57c16cd619634e4f4ee1",
+    "prototype/actions.ndjson": "7d6f3ff1499da7df6bd766986cb3e22239df867b46326727e43089443b2329df",
+    "prototype/terminal.ansi": "a44527aa3404e6e4be64d59669814269c6670ffb8e606899f673676b434a4a80",
+    "before-mock/0001-start.png": "edf31642ab0425c7f8b560a15472373afbeca7520c2ae552edae5aca8c5f79c8",
+    "before-mock/0002-normal-before.png": "ee1f615be7a80d8b9ffa1d273f09b7f460b2c8a1482dc4dcbd25401e64fcb773",
+    "before-mock/0003-corrupted-redraw-before.png": "de44d926ff9743a5cad99423cd47906b26c67fdd50c98369dfb3bd3e83df65f1",
+    "before-mock/0004-qemu-flags-before.png": "de44d926ff9743a5cad99423cd47906b26c67fdd50c98369dfb3bd3e83df65f1",
+    "before-mock/0005-corrupted-redraw-before.png": "a7c3e4bc446600b28fa2dc3f5fce08e758636e1cf795b01520998a5b24ee3e07",
+    "before-mock/0006-services-corrupt-before.png": "54808f2d958933a8a7b677e8b5b6ed1031b938d3250fc1776bf4dedb5ec67f39",
+    "before-mock/0007-browser-before-resize.png": "ee1f615be7a80d8b9ffa1d273f09b7f460b2c8a1482dc4dcbd25401e64fcb773",
+    "before-mock/0008-before-80.png": "fa48f0369908617d7bf07d72182423eee5a7cb15f4173e8c47e61964b2a5ca7a",
+    "before-mock/0009-before-48.png": "246ad8a94a6452639a1c4a4cfa7376638c72486cf7700ab0d8967544b077f653",
+    "before-mock/actions.ndjson": "6c4c2edfbedd90b6dc31edd549b81e65e30ded1841de692e8c99c31e1b911d49",
+    "before-mock/terminal.ansi": "e33f44514556100341a9875fec4c150658b16de05d9c4d92f793d6becff1dd07",
+    "before-native/0001-start.png": "dfafccb92a466bd5f96072cbc11ab3075fa2978a551565a32b3f25d815455932",
+    "before-native/0002-close.png": "c4bc032a3b08d02f9dab7f62e16cb0d31eb53b525167d6044a842b8f12a7c225",
+    "before-native/0002-guest-before-ready.png": "0a8bf826e7d7e283d6d9f3f00de3ce54133495d53b9006b1a27754fe8778eb89",
+    "before-native/0003-broken-native-before.png": "998f9403eb7f3eb983b5096cd7ef2da7c25db07316f0e9bf1860455eef7186ee",
+    "before-native/0004-broken-native-before.png": "9ba65e7b493d75642c4c71eb68049cd5703ab209b401f274a997ef46a959d840",
+    "before-native/0005-broken-selection-before.png": "553191035b53aaa523cce6d748dfab013702337d4f9610caa50ffac3557c6d05",
+    "before-native/0006-before-browser-exit.png": "a12507061cc506436f6b59327925ac25eb9e03a9807bf556f179ccd79500ef6a",
+    "before-native/0007-before-poweroff.png": "168d6b7c3aeac6325c0bed2bbed01e9bc42b2518c04161b6da12e9ea7508e76f",
+    "before-native/0008-before-stopped.png": "2557795b6873cd22d326c6c232f7604c37297e8d716b8a0dc671e50c53f74812",
+    "before-native/0009-close.png": "2557795b6873cd22d326c6c232f7604c37297e8d716b8a0dc671e50c53f74812",
+    "before-native/actions.ndjson": "736e39c3aff48c6f9b405827ce82334f2f6c6c532b936eebcd4a06e18c99bb09",
+    "before-native/terminal.ansi": "61faaefd7ebb353cedf30f42f56c937c76c12c03b0902c9f743b3b0da55feb0f",
+    "after-native/0001-start.png": "994d1d7c0d19bc4ba08eaeda99097f3f785c935120d51995f8ba89c2ce2fe327",
+    "after-native/0002-fixed-boot.png": "35949dace57c343f9373a4ace3f35e8e0210c76a7b7d70a31369202467933e8c",
+    "after-native/0003-fixed-native-120.png": "1f4aeabd2be3bad7c85fec889c60f3046a82fed890b82f0505f8b172254f3fe2",
+    "after-native/0004-fixed-selection-loading.png": "1b1fff1c5bfe7fb86a44bbc32a6749d6dbd3fcdb320e0a47f54b403cc00cef1e",
+    "after-native/0005-fixed-services.png": "5e5f8f168afbba165c548a38f46da3397c471677519bb51c746acece0f492eed",
+    "after-native/0006-fixed-services-ready.png": "b903134ff3d22f610ae4c8204a388e17ce8b5ae09c11fc32da1fe1952add6840",
+    "after-native/0007-fixed-services-back.png": "16f004db6d76941450dd4f55d0b5be6306c81cee1cfc95cc416312790c63d131",
+    "after-native/0008-fixed-main-selection.png": "09dd74b649f1f3d4b75c272a70a79871e7cb9a6c181287899dc7f4414f8f0781",
+    "after-native/0009-fixed-main-services.png": "1e23d52f377a070ba39d947cac94f5c7695316f544995aee509f658a5b227aac",
+    "after-native/0010-fixed-service-journal.png": "955b34adde197e470dcb96225d162caa2ce237ddac8706874e3d02d76551aba9",
+    "after-native/0011-fixed-journal-back.png": "1e23d52f377a070ba39d947cac94f5c7695316f544995aee509f658a5b227aac",
+    "after-native/0012-fixed-browser-back.png": "1f4aeabd2be3bad7c85fec889c60f3046a82fed890b82f0505f8b172254f3fe2",
+    "after-native/0013-fixed-session-enter.png": "d30fb30e0f3c13654b02521a82e55e6f630231365b323b5e62060eae87fc2e40",
+    "after-native/0014-fixed-session-health.png": "81712f9098781f0a91427a637d8fee167a17e3311baf8e6eb03113d3b0376ed8",
+    "after-native/0015-fixed-terminal-ready.png": "81712f9098781f0a91427a637d8fee167a17e3311baf8e6eb03113d3b0376ed8",
+    "after-native/0016-fixed-detach.png": "1f4aeabd2be3bad7c85fec889c60f3046a82fed890b82f0505f8b172254f3fe2",
+    "after-native/0017-fixed-reenter.png": "a7d588cec57a273691e586c2de566a222725e3f574b1ff26d3f307a28c4d02ff",
+    "after-native/0018-fixed-second-detach.png": "09dd74b649f1f3d4b75c272a70a79871e7cb9a6c181287899dc7f4414f8f0781",
+    "after-native/0019-fixed-shell-before-resize.png": "b56250ae4eb46096e16e0e59ff0c923fceed6c1e9d57e7a2bf7092000990b5f1",
+    "after-native/0020-fixed-outer-80.png": "e2ad6536a1b4798900aa1605ad869928adb4f5298b242a131fd476d794af291a",
+    "after-native/0021-fixed-native-80.png": "5ffc4e285791e0f6a72cf66127b24d5df84b1a91aabafda749a529d6a2c4e295",
+    "after-native/0022-fixed-details-80.png": "749f57ff7a68e6426858484a0a82102d9675111389dcd487687d5383036678f0",
+    "after-native/0023-fixed-details-back-80.png": "5ffc4e285791e0f6a72cf66127b24d5df84b1a91aabafda749a529d6a2c4e295",
+    "after-native/0024-fixed-shell-80.png": "73d4c3a4cc8b9d6dbcdf63a62ab933f952418b7b6c480d408f64f9f307488fb0",
+    "after-native/0025-fixed-outer-48.png": "255ebecba2c78287c0e5368b3e68e8a7020154d5e51df2ce151f39c8fdb7cc65",
+    "after-native/0026-fixed-native-48.png": "5e5883b8b3dc340db721e0e47a4dfd173e9eeda455baac9954be0e9ecfdf002c",
+    "after-native/0027-fixed-details-48.png": "dea2a5476f90b281b9b11e4150b2dc9fb91d042f593a16acb8e3431e38d91eb5",
+    "after-native/0028-fixed-details-scroll-48.png": "0c70f888bedad3de60764b69ee43f0a2a5468becdf9149832733963e3fa57ae1",
+    "after-native/0029-fixed-details-back-48.png": "5e5883b8b3dc340db721e0e47a4dfd173e9eeda455baac9954be0e9ecfdf002c",
+    "after-native/0030-fixed-shell-48.png": "9409696c2af06889d50ef1f1f25ef9443e7425b467c341044f8a79dfa0d7c0b6",
+    "after-native/0031-fixed-poweroff.png": "0c29480a342a041e34dfccbd7da3f76e65dbd57e37d1cc356476e2d039ab9604",
+    "after-native/0032-close.png": "0c29480a342a041e34dfccbd7da3f76e65dbd57e37d1cc356476e2d039ab9604",
+    "after-native/actions.ndjson": "ca9a0d2c8cda55b18251e5b078fdad2766e90fd91ef99e70d2cb73ea2a0e47fa",
+    "after-native/terminal.ansi": "5017939d3711f5191e55fa44a3565ccf5a33bbb878b4917b65d1e577887d48d1",
+    "after-mock/0001-start.png": "1df82927452033da5af5cf7d36fed030348f35ccf50246a2605bce83b5542cbf",
+    "after-mock/0002-fixed-mock-baseline.png": "ee1f615be7a80d8b9ffa1d273f09b7f460b2c8a1482dc4dcbd25401e64fcb773",
+    "after-mock/0003-fixed-mock-service-error.png": "54808f2d958933a8a7b677e8b5b6ed1031b938d3250fc1776bf4dedb5ec67f39",
+    "after-mock/0004-fixed-mock-error-back.png": "ee1f615be7a80d8b9ffa1d273f09b7f460b2c8a1482dc4dcbd25401e64fcb773",
+    "after-mock/0005-fixed-mock-quit.png": "1df82927452033da5af5cf7d36fed030348f35ccf50246a2605bce83b5542cbf",
+    "after-mock/0006-close.png": "1df82927452033da5af5cf7d36fed030348f35ccf50246a2605bce83b5542cbf",
+    "after-mock/actions.ndjson": "d9828332203a0d0c07f545ce2f9fa50b5b8e2ea6be52d1ca7f9b8cac811542e3",
+    "after-mock/terminal.ansi": "4d53413740298b8c72336e808d88904dc49034211df0a27b10e227bd2b2c364a",
+    "after-mock-error/0001-start.png": "1df82927452033da5af5cf7d36fed030348f35ccf50246a2605bce83b5542cbf",
+    "after-mock-error/0002-fixed-error-baseline.png": "ee1f615be7a80d8b9ffa1d273f09b7f460b2c8a1482dc4dcbd25401e64fcb773",
+    "after-mock-error/0003-fixed-service-error.png": "7ec43d6b4f4d829a86fda5cdac5aa544a8f622acf3d2f4a7c8559e2171594f45",
+    "after-mock-error/0004-fixed-error-back.png": "ee1f615be7a80d8b9ffa1d273f09b7f460b2c8a1482dc4dcbd25401e64fcb773",
+    "after-mock-error/0005-fixed-error-quit.png": "1df82927452033da5af5cf7d36fed030348f35ccf50246a2605bce83b5542cbf",
+    "after-mock-error/0006-close.png": "1df82927452033da5af5cf7d36fed030348f35ccf50246a2605bce83b5542cbf",
+    "after-mock-error/actions.ndjson": "2fe7c92e05fd8dd058bc9a8cb1f41c219c61256799ab73ce2cae950f8be1e2f8",
+    "after-mock-error/terminal.ansi": "31ce927f1f9d0f7f14f674da0fdcb5ee276dfcae9a55d9aadae7400decdee83a"
+  }
+}

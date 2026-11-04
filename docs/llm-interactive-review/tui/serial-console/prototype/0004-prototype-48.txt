@@ -1,0 +1,16 @@
+P · Sessions · waiting → running → other        
+╭────────────────────────────────────────────╮  
+│ All project sessions                       │  
+│ orbit / fix/cache-race                     │  
+│ UUID 463637f7-f5a4-4e78-bfbb-24c1e4f71b04  │  
+│ lifecycle  running                         │  
+│ presence   unattended                      │  
+│ 1 agents · 1 services · ! waiting          │  
+│ policy     current                         │  
+│ actions    inspect · attach                │  
+│                                            │  
+╰────────────────────────────────────────────╯  
+P project · / search · PgUp/PgDn page           
+j/k move · Enter session · s stop               
+gg/G ends · A agents · S services · ?           
+q | Esc | Ctrl-C back/quit                      

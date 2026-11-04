@@ -9,10 +9,106 @@ open source under the [Apache License 2.0](LICENSE), runs on machines the user
 controls, and can grow from a laptop to a larger Linux or Kubernetes host
 without changing its project model.
 
-> **Status: design.** [PROJECT.md](PROJECT.md) owns P's enduring project
+> **Status: CLI-first implementation validated; authenticated Codex acceptance pending.**
+> [PROJECT.md](PROJECT.md) owns P's enduring project
 > guidance, and [product direction](docs/PRODUCT.md) owns P's product strategy.
-> The design documents under [`docs/`](docs/) are authoritative for their
-> subjects. This README is the product summary.
+> The [architecture account](docs/architecture/README.md) describes the current
+> system, and the code is its source of truth. The design, status and plan
+> documents under [`docs/archive/`](docs/archive/README.md) are history as of
+> 471a3eb, not authority. This README is the product summary.
+
+Start with the [user guide](docs/archive/user-guide.md) for creating a project, working
+in sessions, resuming work, publishing commits, and reviewing cleanup.
+Machine owners can follow [NixOS installation](#nixos-installation) to set up the CLI.
+The [host API reference](docs/archive/control-api.md) documents creation, inspection,
+attachment and lifecycle commands. [Implementation progress](docs/archive/implementation-progress.md)
+records automated checkpoints and live TUI review up to 471a3eb; later TUI
+reviews are recorded in the
+[interactive LLM review evidence](docs/llm-interactive-review/tui/README.md).
+[Manual Codex acceptance](docs/archive/implementation-progress.md#manual-codex-acceptance--pending-user-validation)
+remains pending. The production TUI below connects to that daemon; the original
+prototype remains a separate fixture-backed design reference.
+
+## Use the session browser
+
+After [NixOS installation](#nixos-installation), run the browser as the daemon's
+owning account:
+
+```sh
+sudo --preserve-env=P_SOCKET -u p p tui
+```
+
+For an owner-run daemon, set `P_SOCKET` to its absolute control-socket path and
+run `p tui` as its owner. The standard default is `/var/lib/p/control.sock`;
+an explicit positional socket argument still overrides both.
+The browser reads real paginated projects, sessions, conditions and operations.
+Use arrows or `j/k`, `P` for project scope, `/` for fuzzy search, Enter to
+start/attach, and `q`/Escape to go back. `A` shows the actual latest unattended
+agent report; `S` opens session-user project services and their journal tails.
+Press `?` for creation, Stop, rename, Discard/Delete and paging controls.
+
+Real terminal entry uses the existing attachment boundary and tmux. **Ctrl+B,
+then lowercase `d`** detaches back to the browser. Browse Agents/Services after detaching;
+the prototype's in-terminal inspection popup is not implemented. P does not
+invent active-agent inventories or conversation previews.
+
+Project services are user units named `p-project-*.service`; the browser can
+start, stop and restart them, with fixed commands under the session UID. It
+cannot control host/system or P infrastructure units. See the
+[user guide](docs/archive/user-guide.md#use-the-terminal-browser) and
+[API reference](docs/archive/control-api.md#project-services) for setup and boundaries.
+
+## Develop P
+
+Enter the development shell and list the available tasks:
+
+```sh
+nix develop
+just
+```
+
+The shell uses [nix-dev-templates](https://github.com/lgvo/nix-dev-templates)
+to provide Go and Just, alongside P's test tools. `lang.go.enable` selects Go;
+`lang.go.ciLint.enable` is explicitly `false`, leaving golangci-lint optional.
+Use `just test` for complete automated validation: flake evaluation, Go and
+Python unit tests, terminal observer checks, mocked VM runner checks, package build checks, and the full
+VM integration suite.
+For focused runs, use `just unit-tests` for the unit suites, `just vm-tests`
+for the full VM suite, or `just vm-incus-tests` for the Incus backend
+infrastructure checks alone. The unit recipe also checks VM runner selection
+and locking with mocks, without booting a VM. The full VM suite includes the Incus
+checks.
+
+`just build` builds the packaged CLI and runs its build checks; `just check`
+evaluates the flake without building. Packaging uses Git-tracked sources;
+add new source files to Git before building the package. Unit tests read the
+working checkout, including uncommitted files.
+
+`just lab` opens the interactive VM, `just lab-public` enables its public mode,
+and `just vm-tests --step 56-live-tui.sh` runs a selected disposable VM check.
+These recipes call the existing runners and preserve their locking, logs,
+and disk behavior. `just lab --help` and `just vm-tests --help` show runner options.
+
+`just lab-public` includes both `p-ai/main` and `notes/main`, with PostgreSQL,
+web and worker services ready in the notes session. `just lab-notes` is an alias
+for the same lab and persistent disk. Follow the
+[three-service notes walkthrough](examples/notes/README.md) to manage services
+and develop in separate branches. `just notes-tests` runs its real database tests;
+`just tui-tests` runs fast socket-backed TUI integration and terminal transport
+checks without a VM.
+
+After shutting down the lab, `just lab-reset` previews and confirms deletion of
+the public lab disk; `--offline` selects the separate offline disk. This loses
+all guest work and data on that disk. See the [reset procedure](dev/vm/README.md).
+
+Use `just tui-mock` to explore the **production TUI** against a disposable
+background mock socket. It starts with 24 projects and 120 sessions; use
+`just tui-mock --dataset small` or `just tui-mock --dataset empty` for smaller
+inventories. Enter opens a real local tmux shell; Ctrl-B then lowercase d
+detaches. Every invocation starts fresh and removes its socket, tmux server,
+and temporary workspaces on exit. Services, Git, and lifecycle effects are
+simulated; the shell runs as your local user. See the
+[mock TUI workflow and coverage](docs/archive/development-validations.md#mock-socket-tui-exploration-and-fast-integration).
 
 ## Start from the current prototype
 
@@ -30,7 +126,10 @@ go run .
 The browser has a project-filtered session list, fuzzy search, a simulated
 terminal with a Ctrl+B action popup, and dedicated Agents and Services pages.
 Everything runs on fixtures; production integration remains open. See
-[MVP status](docs/mvp-status.md) for the implementation boundary.
+[control protocol and clients](docs/architecture/control-protocol-and-clients.md#the-tui)
+for what the production TUI implements, and the archived
+[MVP status](docs/archive/mvp-status.md) for the implementation boundary as of
+2026-10-01.
 
 The [iteration history](.prototype/tui-options/ITERATIONS.md) preserves the
 earlier comparison gallery and explains how it led to this starting point.
@@ -40,6 +139,20 @@ Use it for context; the current decisions guide further UI work.
 the chosen browser, improving the existing creation/retry and policy probes
 into coherent workflows. Layout selection is settled for this iteration;
 the gallery remains historical reference.
+
+Try the current implementation in the [interactive P lab](dev/vm/README.md):
+`nix run path:./dev/vm` builds this checkout, boots a configured NixOS/Incus VM,
+and opens a guest shell. Use the task commands there (`p help` lists them) or
+run `p tui` for the browser.
+The first boot seeds a local-only `p-ai/main` session from committed `HEAD`
+and its Git history. Its disk persists between runs. Add `-- --public` for
+public DNS/HTTP(S) access. People and coding agents can explore through the VM
+console; no workstation checkout, credentials, or Nix store is shared.
+
+For repeatable validation, `just vm-tests` exercises the daemon, CLI, TUI, and
+real containers in fresh VMs. `just vm-incus-tests` checks the Incus backend;
+`nix run path:./dev/vm#incus-lab` retains the original infrastructure-only lab.
+See the [progress record](docs/archive/implementation-progress.md) for validation evidence.
 
 ## The idea
 
@@ -100,8 +213,8 @@ branch name. Creation either selects an existing unassigned branch or creates
 a new branch from selected source. `main` can be used directly when it has no
 session, or selected as the source for a different new branch.
 
-Renaming a session renames its actual P-server and workspace refs while keeping
-the UUID, runtime, credentials, and interactive state. The operation is
+Renaming a stopped session renames its actual P-server and workspace refs while
+keeping the UUID, runtime, credentials, and private files. The operation is
 journaled so reconciliation can finish an interrupted rename. It never renames
 or deletes an origin branch.
 
@@ -121,8 +234,9 @@ VMs and Kubernetes placement are later options, not different session models.
 
 Every image implements the same systemd contract. `p-session.target` starts
 `p-interactive.service`, which launches and supervises one persistent
-interactive host; tmux is the default, while another long-running host such as
-screen or zellij can be selected by trusted configuration. The root-owned
+interactive host. The runtime driver provides the host as its own files: the
+Incus driver runs tmux, and another long-running host such as screen or zellij
+would be a change to the driver, not a setting. The root-owned
 `/usr/libexec/p/attach` entrypoint attaches a temporary terminal channel to
 that host.
 
@@ -178,34 +292,45 @@ P never reclaims sessions automatically. The three destructive levels are:
 | Discard | removed | removed | retained as a project source branch | removed |
 | Delete | removed | removed | removed | removed |
 
-Before discard or delete, P inspects reachable running or stopped workspaces
-without activating the environment or starting the interactive command. If an
-instance is missing, P says its local state is already unavailable and offers
-cleanup. If Incus is unreachable, ordinary destruction is refused; an explicit
-abandonment override requires stronger confirmation and records the unknown
-machinery so it can later be recognized as orphaned.
+Before discard or delete, P states what will be lost without looking inside the
+container: for a running or stopped runtime, the container and everything in it,
+including uncommitted changes, files outside Git and commits not pushed to P. P
+stops a running session as part of removing it; attached terminals must detach
+first. If an instance is missing, P says its local state is already unavailable
+and offers cleanup. If Incus is unreachable, cleanup remains incomplete and
+retains exact identity and confirmed intent for Retry when authority returns.
+Manual Incus investigation is supported; abandonment and orphan-forget are
+outside MVP.
 
 Delete separately itemizes Git refs and commits that lose their last retained
-reference. A configured origin is refreshed before P makes claims about what
-survives there. Local-only projects use retained P refs alone.
+reference in P. P does not check the origin: whether work is published there is
+the user's concern.
 
 The UUID↔branch invariant applies while the ref is assigned to a session.
 Discard releases that assignment and leaves an ordinary P branch; continuing
 on it creates a new UUID and assigns that same retained branch. Creating a
 different branch from it is a separate choice that asks for a source.
 
-Creation, start, attachment, rename, stop, destructive preflight, repair,
-abandonment, and crash recovery are specified in
-[session lifecycle](docs/session-lifecycle.md).
+[Control plane](docs/architecture/control-plane.md) and
+[control protocol and clients](docs/architecture/control-protocol-and-clients.md)
+describe how creation, start, attachment, rename, stop, destructive preflight,
+and crash recovery work now; the archived
+[session lifecycle](docs/archive/session-lifecycle.md) design records how they
+were specified.
 
-A separate project-level operation, **Delete project and all P data**, previews
-all sessions, retained branches, credentials, runtimes, and attachments that
-will be removed. Confirmation authorizes termination of the listed live
-attachments. P records a minimal durable tombstone and idempotently ensures
-each listed resource is absent; if some cleanup fails, the user retries and P
-reports the smaller remainder. Project creation, retained branches, origins,
-and whole-project deletion are specified in
-[project lifecycle](docs/project-lifecycle.md).
+A separate project-level operation, **Delete project and all P data**, first
+shows a plan of all sessions, retained branches, credentials, runtimes, and
+attachments that will be removed, and runs only that plan. The implemented
+path stops running sessions itself and requires every terminal detached; a
+positively missing runtime is shown as already gone, and incomplete creations
+need separate supported cleanup first. P records minimal durable confirmed
+intent and idempotently ensures each resource is absent; if some cleanup fails,
+the user retries and P reports the smaller remainder.
+[Source driver and P's Git endpoint](docs/architecture/source-driver-and-git-endpoint.md)
+and [control plane](docs/architecture/control-plane.md) describe how project
+creation, retained branches, origins, and whole-project deletion work now; the
+archived [project lifecycle](docs/archive/project-lifecycle.md) design records
+how they were specified.
 
 ## Overview and status
 
@@ -242,8 +367,10 @@ Separately, P exposes typed, versioned reduced events to configured handlers.
 MVP provides a redacted local NDJSON log handler. Events are an extension seam,
 not another state authority or a built-in notification protocol.
 
-See [session observability](docs/session-observability.md) for the reducer and
-adapter rules.
+See [plugins and events](docs/architecture/plugins-and-events.md) for how the
+status reducer and the agent adapter work now, and the archived
+[session observability](docs/archive/session-observability.md) design for their
+original rules.
 
 ## Git and RPC
 
@@ -264,35 +391,47 @@ deletion. Host fetch and explicit publication against origin use the user's
 normal OpenSSH credentials, not P session credentials.
 
 The control API is newline-delimited JSON-RPC 2.0 over Unix sockets. MVP
-clients connect directly to the local Unix socket. Attachment uses a separate
-validated argv path through a trusted host helper that binds lease, terminal
-carrier, and channel lifetime. A client-initiated SSH-to-Unix transport is
+clients connect directly to the local Unix socket. For an attachment, a trusted
+host helper claims a one-use token on its own control connection, and the
+daemon relays over that connection the terminal it opens through the runtime
+driver on a fixed attach command. A client-initiated SSH-to-Unix transport is
 post-MVP; the daemon never initiates SSH or returns a shell string.
 
 Git carries commits, objects, and refs. RPC carries lifecycle, configuration,
-runtime state, attachment leases, status, and subscriptions. The complete
-division is in [communication boundaries](docs/communication-boundaries.md).
+runtime state, attachment leases, status, and subscriptions. The
+[architecture overview](docs/architecture/README.md#boundaries) describes each
+boundary and what crosses it now; the archived
+[communication boundaries](docs/archive/communication-boundaries.md) design
+records the original division.
 
 ## Environments and isolation
 
-Every session begins from a P-owned Incus base image containing Nix, a shell,
+Every session's image starts from a P-owned Incus base image containing Nix, a shell,
 basic userland, Git and SSH, CA certificates, tmux, and P's runtime helper. The
 project environment is selected in MVP as:
 
 1. the project's ordinary default Nix `devShell`, when present; or
 2. the minimal substrate alone.
 
-The MVP Nix builder consumes immutable committed source in a disposable,
-restricted Incus builder. It realizes the devShell and publishes a verified
-private Incus image with a coherent Nix store/database and activation material.
+When the host configures environment building, an image belongs to a source
+commit. The first session from a commit builds its image: a disposable,
+restricted Incus builder clones a Git bundle of the commit into `/workspace`,
+realizes the devShell, and publishes a verified private Incus image with a
+coherent Nix store/database, activation material and that clone. Every later
+session from the same commit reuses the image with no build and no clone; a
+new commit, even one that changes only code, builds a new image. P deletes an
+image once no session started from its commit exists, and with its project.
+Without environment building, sessions start from the base image and clone
+their branch from P at first start.
+
 Each session receives its own writable Incus root on top, including a private
 `/nix`, workspace, and home. Sessions do not mount the host Nix store/daemon or
 share a writable store. A session may build additional private Nix paths; they
-survive stop/start and disappear with the session. Cache behavior, physical
-deduplication, and build time remain project/storage-driver dependent.
+survive stop/start and disappear with the session. Build time and physical
+deduplication remain project/storage-driver dependent.
 
-The `EnvironmentBuilder` interface remains reusable, but Dockerfile and OCI
-providers are not specified for MVP.
+The runtime driver's image operations build, list, inspect and delete images
+for one runtime; Dockerfile and OCI providers are not specified for MVP.
 
 MVP external grants are project-scoped under `{project}/*`. The namespace
 `{project}/{branch}` is reserved for later branch-specific grants. A session
@@ -313,24 +452,29 @@ instances, or Incus administration. P Git and private session RPC use narrow
 session endpoints. P MVP does not declare, supervise, health-check, or restart
 project services.
 
-See [environment building](docs/environment-building.md) for Nix image
-building, activation, and caching, and
-[runtime and isolation](docs/runtime-isolation.md) for runtime assembly,
+See [environment building](docs/archive/environment-building.md) for commit-image
+building, activation, reuse and deletion, and
+[runtime and isolation](docs/archive/runtime-isolation.md) for runtime assembly,
 storage, mounts, network policy, labels, and cleanup.
 
 ## Model access
 
-MVP supports Codex as its sole validated agent integration. Codex runs inside
+Codex is the MVP's sole planned agent integration. The pinned adapter passes
+authentication-free event and private-storage fixtures; real authenticated
+execution remains [pending the user's manual acceptance](docs/archive/implementation-progress.md#manual-codex-acceptance--pending-user-validation).
+Codex runs inside
 the isolated session as an ordinary command, and the user authenticates it
 within that session's private home. P does not copy, inject, or manage the
-host's Codex or OpenAI credentials. The session-local authentication survives
-Stop and Start and disappears with Discard or Delete.
+host's Codex or OpenAI credentials. The lifecycle contract retains session-local
+authentication across Stop/Start and removes it with Discard/Delete; automated
+tests validate the public Discard/Delete paths with dummy files. Authenticated
+credential cleanup remains part of the user's manual acceptance.
 
 Codex use that requires network access uses the project's explicitly selected,
 validated `public-egress` grant. P supplies no model endpoint in MVP.
 
 Managed, session-scoped model access through Bifrost is post-MVP. Its retained
-design is in [model gateway](docs/model-gateway.md).
+design is in [model gateway](docs/archive/model-gateway.md).
 
 ## Extensibility
 
@@ -340,13 +484,16 @@ lifecycle orchestration, policy, grants, recovery, activation, and user
 confirmation while invoking typed plugin contracts for the selected
 implementations.
 
-MVP must prove that model through secure first-party defaults, including Incus
-runtime support, a tmux persistent host, Git source and session access, Nix
-environment preparation, the structured file-event handler, and the Codex
-adapter. Ordinary setup selects and connects those defaults automatically.
-Developers and agents can author and test alternatives, but registration does
-not activate a plugin or grant it authority; trusted developer configuration
-controls both. The usable public interfaces and their basic first-party
+MVP must prove that model through secure first-party defaults, including a tmux
+persistent host, Git source and session access, the structured file-log
+handler, and the Codex adapter. Incus runtime support is P's first-party
+runtime driver, the `p-runtime-incus` executable shipped with P, not a plugin,
+and Nix environment preparation is part of its image build. Git source is P's
+first-party source driver, the `p-source-git` executable shipped with P,
+likewise not a plugin. Ordinary setup
+selects and connects those defaults automatically. Developers and agents can
+author and test alternatives, but registration does not activate a plugin or
+grant it authority; trusted developer configuration controls both. The usable public interfaces and their basic first-party
 composition are sufficient for MVP; a separate agent-authored plugin is not a
 release gate.
 
@@ -356,12 +503,25 @@ mechanisms while P provides explicitly granted, session-scoped access.
 Host-side capabilities participate in lifecycle work without being exposed to
 the session.
 
-The concrete plugin architecture is not designed yet. Packaging, process
-model, isolation, transport, compatibility, capability manifests,
-installation, composition, and approval UX remain open. See
+[Plugins and events](docs/architecture/plugins-and-events.md) describes package
+manifests, selection by path and digest in trusted host configuration and the
+event-handler protocol, and the [driver model](docs/architecture/driver-model.md#launch-checks-and-start)
+describes the launch checks; the archived
+[plugin contract](docs/archive/plugin-contract.md) records how they were first
+defined. An event handler is a native executable the
+daemon starts and supervises, by default the bundled file-log; it is trusted
+code with P's authority. The Codex agent adapter is a package of files the
+runtime driver installs in sessions. The CLI validates packages, prints the
+bundled selections and tries an event handler with `p plugins run-event`.
+Packaged bundled composition and managed install/update/removal are
+validated within the package contract's explicit boundaries. The archived
+[implementation progress record](docs/archive/implementation-progress.md) holds
+the VM evidence up to 471a3eb. See
 [product direction](docs/PRODUCT.md),
-[project guidance](PROJECT.md#make-extension-a-product-capability), and the
-[implementation tracker](docs/missing-pieces.md#plugin-contract).
+[project guidance](PROJECT.md#make-extension-a-product-capability),
+[managed packages](docs/architecture/plugins-and-events.md#managed-packages-and-p-plugins),
+and the archived
+[package management contract](docs/archive/plugin-contract.md#managed-package-commands).
 
 ## Configuration
 
@@ -389,7 +549,7 @@ images, storage, and runtime operations.
 
 ## Requirements
 
-MVP targets Linux and expects:
+MVP installation is supported on NixOS with local Incus and expects:
 
 - Git and OpenSSH;
 - a locally initialized Incus daemon and confined user project;
@@ -398,14 +558,87 @@ MVP targets Linux and expects:
 - systemd and tmux in the base image for the default persistent interactive
   host contract.
 
-Nix executes inside isolated builder and session instances. Host Nix is not a
-runtime installation dependency; a developer or distribution process may use
-it to build the P base image.
+Project Nix evaluation and builds execute inside isolated builder and session
+instances. Nix on the NixOS host builds and installs P's packages and base image;
+it does not evaluate project source with host authority.
+
+### NixOS installation
+
+The root flake exports the locked CLI and NixOS module:
+
+```sh
+nix build .#default
+./result/bin/p version
+nix build .#runtime-image --out-link result-p-image
+nix build .#runtime-metadata --out-link result-p-metadata
+nix build .#runtime-fingerprint --out-link result-p-fingerprint
+```
+
+The package's `bin` holds `p` and the two drivers the daemon starts,
+`p-runtime-incus` and `p-source-git`.
+
+The machine owner provisions local Incus, the service account's restricted
+`user-UID` project, profile, allowed endpoint/grant paths, storage pools and base
+image. Import the metadata tarball and squashfs through that account's confined
+user socket; use the fingerprint stored in `result-p-fingerprint` as the trusted base
+fingerprint. [Deployment on NixOS](docs/architecture/nixos-deployment.md#what-the-machine-owner-provisions)
+describes these restrictions and the
+[trusted host configuration](docs/architecture/nixos-deployment.md#the-trusted-host-configuration)
+its fields; the archived
+[isolation contract](docs/archive/runtime-isolation.md#incus-boundary) and
+[host API configuration](docs/archive/control-api.md) record their design.
+
+Add the flake's `nixosModules.default` to the host's imports and configure:
+
+```nix
+networking.nftables.enable = true;
+virtualisation.incus.enable = true;
+services.p = {
+  enable = true;
+  bundledActivation = true;
+  settings = builtins.fromJSON (builtins.readFile ./p-host.json);
+};
+```
+
+The owner-supplied `p-host.json` contains trusted non-secret Git/runtime settings,
+the confined socket/project and imported image fingerprint. Its
+`runtime.driver` needs only `config`, and its `git.driver` nothing: when a
+driver gives no `path`, the module pins the package's `bin/p-runtime-incus` or
+`bin/p-source-git` and that file's SHA-256, computed when the configuration is
+built, and gives `p-source-git` the system's Git and OpenSSH unless its
+`config` names them ([host configuration](docs/archive/control-api.md)).
+`bundledActivation` selects the package's bundled file-log, writing
+`/var/lib/p/events.ndjson`, and Codex adapter in the generated host
+configuration, by path and digest, unless your settings select their own
+`events` or `runtime.agent_adapter`. The service module supports `network: none` policies only. Public egress uses the
+existing owner-run daemon configuration and its scoped privileged network proofs;
+the module refuses it rather than weakening service hardening. The
+module creates a persistent `p` account; existing confined accounts can use
+`createUser = false` with explicit `user` and `group`. Provision the required
+Incus restrictions and owned endpoint directories for that account before
+starting P. Schema and state directory are generated by the module.
+
+After applying your NixOS configuration, use the service account for CLI calls:
+
+```sh
+sudo systemctl start p.service
+sudo --preserve-env=P_SOCKET -u p p status
+sudo --preserve-env=P_SOCKET -u p p project list
+sudo journalctl -u p.service -n 30 --no-pager
+```
+
+Preserving `P_SOCKET` carries the configured socket or your exported override
+through sudo's environment reset.
+
+Host configuration is privately generated from declarative settings at service
+start. State survives restarts. Installation
+acceptance is recorded in [implementation progress](docs/archive/implementation-progress.md);
+authenticated Codex execution remains your separate manual gate.
 
 ### macOS and Windows
 
-The daemon, execution backends, and local client remain Linux-only in MVP. A
-user may use an ordinary SSH login to the Linux host and run the local TUI
+The supported MVP host is NixOS. A user may use an ordinary SSH login to that
+host and run the local CLI
 there, but P's client-initiated SSH-to-Unix transport and native macOS or
 Windows clients are post-MVP. They do not introduce a remote-runtime backend.
 
@@ -433,7 +666,7 @@ MVP closes the loop for one user on Linux:
 - create explicit SSH-origin or blank projects and create sessions from
   committed sources, with one unborn-`main` bootstrap exception;
 - enforce immutable UUID-to-branch ownership and transactional rename;
-- build cached Nix environment images and run unprivileged local Incus
+- build one Nix image per source commit and run unprivileged local Incus
   containers;
 - enter a systemd-supervised persistent interactive host through a fixed
   attach entrypoint;
@@ -443,20 +676,28 @@ MVP closes the loop for one user on Linux:
 - fetch from and explicitly publish to an optional origin;
 - enforce project-scoped external grants and Git credentials;
 - run Codex with authentication owned by the session's private home;
-- emit reduced typed events to a local file handler; and
+- emit reduced typed events to a local file-log handler; and
 - reconcile SQLite, Git, credentials, and runtime state after interruption.
 
-Implementation uncertainties that need real-machine evidence are tracked in
-[development validations](docs/development-validations.md). They gate only the
-affected milestone or capability unless evidence disproves a core invariant.
+The [architecture overview](docs/architecture/README.md) describes how the
+current code is validated and lists its
+[known limits and open questions](docs/architecture/README.md#known-limits-and-open-questions).
+Up to 471a3eb, implementation uncertainties that needed real-machine evidence
+were tracked in the archived
+[development validations](docs/archive/development-validations.md), where each
+gated only the affected milestone or capability unless evidence disproved a
+core invariant.
 
-The current documentation/readiness snapshot is in
-[MVP status](docs/mvp-status.md), and the complete remaining-work tracker is in
-[missing pieces](docs/missing-pieces.md).
+The archived [MVP status](docs/archive/mvp-status.md) snapshot records
+documentation and readiness as of 2026-10-01, and the archived
+[implementation progress](docs/archive/implementation-progress.md) log records
+implementation findings, remaining gates and validation evidence up to 471a3eb.
 
-The implementation choices and build-vs-buy decisions are in
-[technology stack](docs/technology-stack.md). The [FAQ](docs/FAQ.md) explains
-the main tradeoffs, and the [product landscape and design space](docs/design-space.md)
+The archived [technology stack](docs/archive/technology-stack.md) records the
+implementation choices and build-vs-buy decisions as they stood; no live
+document replaces it yet
+([Q11](docs/architecture/README.md#open-questions)). The [FAQ](docs/archive/FAQ.md) explains
+the main tradeoffs, and the [product landscape and design space](docs/archive/design-space.md)
 maps neighboring projects, differentiation, and validation wedges without
 defining P's behavior.
 

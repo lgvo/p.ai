@@ -1,0 +1,4 @@
+{"op": "start", "label": "start", "wait": 0.2, "background": "dark", "cols": 120, "rows": 35, "frame": "/tmp/p-screen-prototype-frames/0001-start", "timestamp": 1790886951.0119944, "bytes": 7755}
+{"op": "send", "label": "prototype-move", "wait": 0.2, "text": "j", "hex": null, "frame": "/tmp/p-screen-prototype-frames/0002-prototype-move", "timestamp": 1790886989.7372823, "bytes": 11071}
+{"op": "resize", "label": "prototype-80", "wait": 0.2, "cols": 80, "rows": 24, "frame": "/tmp/p-screen-prototype-frames/0003-prototype-80", "timestamp": 1790887482.9663327, "bytes": 14740}
+{"op": "resize", "label": "prototype-48", "wait": 0.2, "cols": 48, "rows": 16, "frame": "/tmp/p-screen-prototype-frames/0004-prototype-48", "timestamp": 1790887497.7310681, "bytes": 16441}

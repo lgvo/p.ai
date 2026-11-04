@@ -1,0 +1,8 @@
+{
+  "schema": "p.plugin/v2",
+  "id": "org.p.example.filterlog",
+  "version": "0.2.0",
+  "description": "Append only ready-condition events to a private host file.",
+  "capability": "event-handler",
+  "entry": "filter-log"
+}

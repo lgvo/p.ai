@@ -1,0 +1,35 @@
+ P · Sessions · waiting → running → other                                                                               
+ ╭──────────────────────────────────────────────────────────────────────────╮ ╭───────────────────────────────────────╮ 
+ │ All project sessions                                                     │ │ Session details                       │ 
+ │ 1–3 of 3 · selected 1                                                    │ │ Project: notes                        │ 
+ │ › notes            ├─ main                              running          │ │ Branch: main                          │ 
+ │   notes            └─ test-note-feature                 running          │ │ UUID:                                 │ 
+ │   p-ai             └─ main                              running          │ │ 518a9a25-561d-4c57-900d-cb101ffda071  │ 
+ │                                                                          │ │ Runtime: running · Policy: current    │ 
+ │                                                                          │ │ Terminals: unattended (0 attached)    │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │ ├─ Agents [A] · latest report         │ 
+ │                                                                          │ │ │  Activity unknown · no retained     │ 
+ │                                                                          │ │ report                                │ 
+ │                                                                          │ │ │                                     │ 
+ │                                                                          │ │ └─ Project services [S] · 3 units     │ 
+ │                                                                          │ │ observed                              │ 
+ │                                                                          │ │    p-project-notes-db.service         │ 
+ │                                                                          │ │    active (running)                   │ 
+ │                                                                          │ │    p-project-notes-web.service        │ 
+ │                                                                          │ │    active (running)                   │ 
+ │                                                                          │ │    p-project-notes-worker.service     │ 
+ │                                                                          │ │    active (running)                   │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │ D complete details · A report · S all │ 
+ │                                                                          │ │ units                                 │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ │                                                                          │ │                                       │ 
+ ╰──────────────────────────────────────────────────────────────────────────╯ │                                       │ 
+ j/k move · PgUp/PgDn page · gg/G ends · Enter open · s stop · c create       │                                       │ 
+ P project · / search · D details · A reports · S services · O operations     │                                       │ 
+ ? help                                                                       │                                       │ 
+ p policy · b branches · R rename · d discard · X delete · q/Esc back         ╰───────────────────────────────────────╯ 
+                                                                                                                        
+                                                                                                                        

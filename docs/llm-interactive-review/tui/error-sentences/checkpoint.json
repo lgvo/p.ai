@@ -1,0 +1,46 @@
+{
+  "date": "2026-11-03",
+  "head": "3010936",
+  "working_tree": "run 'after3' built from /home/lgvo/p.ai at 3010936 with a clean tree (only this evidence directory and .claude/ untracked). Runs 'after', 'after2' and 'after-cli' were built from the step-3 tree before 3010936 (committed as 859779d + 5066f80); their TUI, errtext, attachment and mock files were byte-identical to 5066f80",
+  "scope": "Production p tui and p attach against the disposable mock socket (just tui-mock --dataset small --theme dark); error notices, the selected-session services diagnostic and p attach errors only; no Incus, Git, systemd or real-daemon claim. Natural refusals used a second production p tui on the same fixture socket to hold an attachment or start a session; the other failures were injected with mock.configure (recorded as injected_before on the consuming action)",
+  "before": "git worktree of 4e221ba (runs 'before', 'before-x', 'before-cli', 'before2'), built with GOFLAGS=-buildvcs=false because Go's VCS stamping exits 128 in that scratch worktree. Injected before faults answer kind fixture_failure, so they read 'fixture_failure: <text>' where the before daemon answered 'unavailable:', 'busy:' or 'internal:'; the texts are the before daemon's own messages for the same conditions",
+  "prototype": ".prototype/tui-options browser, --dataset standard, Stop of the attached forge/docs/plugin-guide (run 'proto')",
+  "after_runs": {
+    "after": "lifecycle refusals (discard, Stop, Rename), services diagnostic, services page, service action, Start, branches, stale inventory at 120x35; ended when Escape on the unscoped sessions page quit the browser (frames 0088-0093 invalid)",
+    "after2": "stale inventory at 80x24 and 48x16, queued service suffix, TUI attach failure, Rename to a taken name, expired removal review",
+    "after-cli": "p attach on a stopped session and with an expired attachment claim",
+    "after3": "repeat on 3010936 of the fixed paths: stale inventory at all sizes and an 82-character sentence at 80x24 (F2/F3), Start refusals at 80x24 and 48x16 (F3), services failure with reason services in Details and on the Services page at all sizes (F4), the expired Discard review at all sizes (F1)",
+    "after3-cli": "p attach with an expired attachment claim on 3010936 (F1)"
+  },
+  "sizes": [
+    "120x35",
+    "80x24",
+    "48x16"
+  ],
+  "final_files_sha256": {
+    "internal/errtext/errtext.go": "aeedc43476a146e83f9bc718eb4eb676d06a8e8a8ed742e8c182e693273be7c4",
+    "internal/tui/model.go": "93859af18f5002c525ee606fe2ffc9af0cfbed9250826719990a52df9438f06a",
+    "internal/tui/selected_services.go": "f9e0d858e198d89ddc236c9630ff2364d5f30f37d871eb2cf612472532ffeb55",
+    "internal/tui/view.go": "4bbcfde6eef1c460f5515fdc58d4c507fd1ff2901f61f8c30e3507d9cebacca7",
+    "internal/attachment/client.go": "9726716d2fde2360109965b6d7fb035e7ba55e54cbfad101331a78a2d436fa2f",
+    "internal/attachment/helper.go": "f38907699dfeb0af2b10ba5710486230e97b05295e4ba1138dca75e67a8d06a4",
+    "internal/attachment/rpc.go": "7b4670d97b1cdfd10687806f410f6ac8610eeb5ddf2acd36923235fd03aff163",
+    "tests/integration/cmd/tui-mock/main.go": "277ff37910a51608880efe67b7cc135885abfed95030599bf12627592948f159",
+    "dev/tui-mock": "ee83826cd9b27523c21d1641f8333b6bf9bf8a461c17ae7ec560a2f24c69ccc7",
+    "dev/tui-test-shell.nix": "c51028bb02a84fb20da3c3be84d17156f0f85b1e0c1e602c7b20b2e18229b505"
+  },
+  "component_tests": "go test ./internal/tui ./internal/errtext ./internal/attachment ./tests/integration/cmd/tui-mock: ok (internal/attachment needs a short TMPDIR; under nix-shell's TMPDIR two helper tests fail binding a Unix socket path over 108 bytes)",
+  "tui_tests": "just tui-tests on 3010936: 12 tests OK (19.7 s); go test ./internal/tui ./internal/errtext ./tests/integration/cmd/tui-mock: ok",
+  "findings": {
+    "F1": "fixed in 3010936: 'The review or attachment expired or was already used; request it again.' on the expired review at 120x35, 80x24 and 48x16 and in p attach",
+    "F2": "fixed in 3010936: notices wrap to the width the page draws in; the sessions page at 48x16 shows 'P failed unexpectedly; the daemon's log has / the cause.' without clipping, and the list shrinks to keep the notice and STALE visible",
+    "F3": "fixed in 3010936: notices wrap between words ('…fix the host / configuration.' at 80x24, '…discard the / session and create a new one.' at 48x16, an 82-character sentence at 80x24)",
+    "F4": "fixed in 3010936: a user service manager failure (failed/services) reads 'The session's user service manager refused or is unavailable; check the unit and the session's image.' in Details and on the Services page at all sizes",
+    "F5": "open (pre-existing): a TUI attach failure shows 'Attachment ended: exit status 1'; the p attach sentence is overdrawn Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): a TUI attach failure now shows the sentence p attach printed, 'Attachment ended: The runtime failed; check Incus and try again.' (tui-fixes after-0023; before-0025 still read 'exit status 1')",
+    "F6": "accepted: refusals rely on the page heading to name the action",
+    "F7": "open (pre-existing): 'STALE · connection failed' under a daemon failure; at 48x16 the STALE line is also cut with '…' Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): the line reads 'STALE · refresh failed; actions need a fresh observation' and wraps between words: two whole lines at 48x16 (after-0071), one at 80x24 and 120x35 (after-0111, after-0123)",
+    "F8": "open: 'P's Git repository failed; try again.' on Retained branches has no visible retry Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): Retained branches offers 'r refresh', which reads the branches again (after2-0007, after2-0008, after2-0010); after a failed read the page no longer lists the choices an earlier Create left (before-0039, after2-0007)",
+    "F9": "open (cosmetic): '… try again. · queued service action was not issued' Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): 'The runtime failed; check Incus and try again. The queued service action was not issued.' (after-0065)"
+  },
+  "findings_open": 0
+}

@@ -1,0 +1,543 @@
+package tui
+
+import (
+	"errors"
+	"github.com/lgvo/p.ai/internal/plugin"
+	"strings"
+	"testing"
+
+	"github.com/charmbracelet/x/ansi"
+	"github.com/lgvo/p.ai/internal/api"
+	"github.com/lgvo/p.ai/internal/errtext"
+)
+
+func TestLongSessionRowsKeepRuntimeAndAttentionVisible(t *testing.T) {
+	for _, width := range []int{48, 80, 120} {
+		m := fixture()
+		m.width, m.height = width, 24
+		m.data.sessions[0].Project = strings.Repeat("long-project/", 10)
+		m.data.sessions[0].Branch = strings.Repeat("branch界", 30)
+		m.data.sessions[0].Condition = "ready"
+		m.data.sessions[0].LatestUnattendedCondition = &api.UnattendedCondition{Condition: "attention"}
+		rows := m.sessionRows()
+		for _, r := range rows {
+			if r.id != m.data.sessions[0].UUID {
+				continue
+			}
+			label := m.rowLabel(r, width-6)
+			if !strings.Contains(ansi.Strip(label), "running !waiting") || ansi.StringWidth(label) > width-6 {
+				t.Fatalf("runtime hidden at width %d: %q", width, label)
+			}
+			if !strings.Contains(label, "38;2;86;211;100") || !strings.Contains(label, "38;2;227;179;65") {
+				t.Fatalf("runtime and attention lost distinct colors: %q", label)
+			}
+		}
+	}
+}
+
+func TestProjectCountsAlignAndLongNamesRemainSearchable(t *testing.T) {
+	m := fixture()
+	m.navigate("projects")
+	long := strings.Repeat("long-project/", 8)
+	m.data.projects = []api.ProjectSummary{{Path: "a"}, {Path: long}}
+	m.data.sessions = []api.SessionView{{Project: "a", Condition: "ready"}, {Project: long, Condition: "stopped"}}
+	for _, width := range []int{42, 74, 90} {
+		column := -1
+		for _, r := range m.rows() {
+			label := ansi.Strip(m.rowLabel(r, width))
+			if len(label) == 0 || ansi.StringWidth(label) > width {
+				t.Fatalf("project counts overflow width %d: %q", width, label)
+			}
+			i := ansi.StringWidth(label[:strings.Index(label, "!w")])
+			if column < 0 {
+				column = i
+			} else if i != column {
+				t.Fatalf("project count columns shifted: %q", label)
+			}
+		}
+	}
+	m.choiceQuery = long
+	if rows := m.rows(); len(rows) != 1 || rows[0].id != long {
+		t.Fatal("bounded display changed full-name search")
+	}
+}
+
+func TestCompactBrowserControlsRemainReadableAndStable(t *testing.T) {
+	m := fixture()
+	m.width, m.height = 48, 16
+	frame := ansi.Strip(m.View().Content)
+	for _, action := range []string{"/ search", "? help", "O operations", "R rename", "d discard", "X delete", "q/Esc back"} {
+		if !strings.Contains(frame, action) {
+			t.Fatalf("compact frame hid %s:\n%s", action, frame)
+		}
+	}
+	before := strings.Count(frame[:strings.Index(frame, "Enter open")], "\n")
+	m, _ = press(m, "j")
+	m.notice = "The selected session is unavailable."
+	afterFrame := ansi.Strip(m.View().Content)
+	if after := strings.Count(afterFrame[:strings.Index(afterFrame, "Enter open")], "\n"); after != before {
+		t.Fatal("selection/notice moved list controls")
+	}
+}
+
+func TestProgressExplainsPendingSourcePreparation(t *testing.T) {
+	m := fixture()
+	m.navigate("progress")
+	m.operationID = "operation"
+	m.operation = api.Operation{Kind: "session.create", Status: "running", Phase: "branch-assigned"}
+	_, lines, _ := m.inspectionContent()
+	if !strings.Contains(strings.Join(lines, "\n"), "Preparing captured source and environment") {
+		t.Fatal("pending creation does not explain native preparation")
+	}
+	m.operation.Status = "failed"
+	_, lines, _ = m.inspectionContent()
+	if strings.Contains(strings.Join(lines, "\n"), "pending phase") {
+		t.Fatal("failed operation was presented as pending")
+	}
+}
+
+func TestPolicyAndDetailsShowTheSessionCommitImage(t *testing.T) {
+	commit, base, image := strings.Repeat("c", 40), strings.Repeat("b", 64), strings.Repeat("e", 64)
+	m := fixture()
+	m.width, m.height = 120, 35
+	for i := range m.data.sessions {
+		if m.data.sessions[i].UUID == m.selected {
+			m.data.sessions[i].Image = &api.ImageView{CommitOID: commit, System: "x86_64-linux", Selection: "devShells.x86_64-linux.default", State: "reused", BaseImageFingerprint: base, ImageFingerprint: image}
+		}
+	}
+	facts := []string{"Environment: devShells.x86_64-linux.default", "Source commit: " + commit, "Image: reused", "System: x86_64-linux", "Base image: " + base, "Image fingerprint: " + image}
+	for _, key := range []string{"p", "D"} {
+		m, _ = press(m, key)
+		frame := ansi.Strip(m.View().Content)
+		for _, fact := range facts {
+			if !strings.Contains(frame, fact) {
+				t.Fatalf("%s page hides %q:\n%s", m.page, fact, frame)
+			}
+		}
+		m, _ = press(m, "q")
+	}
+}
+
+// projectOf is the project a branch read asks about.
+func projectOf(t *testing.T, p any) string {
+	t.Helper()
+	switch r := p.(type) {
+	case api.ProjectBranchesRequest:
+		return r.Project
+	case api.ProjectRetainedBranchesRequest:
+		return r.Project
+	case api.OriginRefreshRequest:
+		return r.Project
+	case api.OriginSourcesRequest:
+		return r.Project
+	}
+	t.Fatalf("not a branch read: %T", p)
+	return ""
+}
+
+func TestBlockedOperationRetryKeyResumesCapturedRequest(t *testing.T) {
+	client := &fakeClient{fn: func(method string, p any) (any, error) {
+		if method != "operation.retry" || p != (api.OperationRetryRequest{ID: "blocked"}) {
+			t.Fatalf("wrong resumable request: %s %+v", method, p)
+		}
+		return map[string]any{"operation": api.Operation{ID: "blocked", Kind: "session.create", Status: "running"}}, nil
+	}}
+	m := fixture()
+	m.client = client
+	m.navigate("progress")
+	m.operationID = "blocked"
+	m.operation = api.Operation{ID: "blocked", Kind: "session.create", Status: "blocked", Phase: "branch-assigned"}
+	m, cmd := press(m, "r")
+	if cmd == nil || !m.working {
+		t.Fatal("generic resumable blocked operation lost Retry")
+	}
+	cmd()
+	if len(client.calls) != 1 || client.calls[0] != "operation.retry" {
+		t.Fatalf("actual Retry key did not reach RPC: %v", client.calls)
+	}
+}
+
+func TestInventoryRefreshClampsOpenLists(t *testing.T) {
+	for _, item := range []struct{ page, query string }{{"projects", ""}, {"projects", "vnsh"}, {"operations", ""}} {
+		t.Run(item.page+"/"+item.query, func(t *testing.T) {
+			m := fixture()
+			m.data.projects = []api.ProjectSummary{{Path: "a"}, {Path: "b"}, {Path: "vanished"}}
+			m.data.operations = []api.OperationSummary{{ID: "a"}, {ID: "b"}, {ID: "c"}}
+			m.navigate(item.page)
+			m.choiceQuery = item.query
+			m.cursor = len(m.rows()) - 1
+			updated, _ := m.Update(loaded{data: inventory{projects: []api.ProjectSummary{{Path: "a"}}}})
+			m = updated.(Model)
+			if m.cursor != max(0, len(m.rows())-1) {
+				t.Fatalf("refresh left cursor %d outside %d rows", m.cursor, len(m.rows()))
+			}
+			m, cmd := press(m, "enter")
+			if cmd != nil {
+				t.Fatal("refresh/Enter dispatched an unexpected request")
+			}
+			if item.page == "projects" && item.query == "" && (m.page != "sessions" || m.scope != "a") {
+				t.Fatalf("Enter did not select the remaining project: page=%s scope=%s", m.page, m.scope)
+			}
+			if item.query != "" && (m.page != "projects" || m.scope != "") {
+				t.Fatal("empty filtered inventory selected a hidden project")
+			}
+		})
+	}
+}
+
+func TestBranchObservationClampsShrinkingChoices(t *testing.T) {
+	for _, page := range []string{"create", "retained"} {
+		t.Run(page, func(t *testing.T) {
+			m := fixture()
+			m.navigate(page)
+			m.form = "branch"
+			m.choices = []row{{id: "a"}, {id: "b"}, {id: "c"}, {id: "d"}}
+			m.cursor = 3
+			updated, _ := m.Update(actionDone{epoch: m.epoch, method: "creation.branches", result: branchInventory{Retained: []api.RetainedBranch{{Branch: "remaining", OID: "tip"}}}})
+			m = updated.(Model)
+			if m.cursor < 0 || m.cursor >= len(m.rows()) || m.rows()[m.cursor].id != "remaining" {
+				t.Fatalf("branch result left invalid selection: %d %+v", m.cursor, m.rows())
+			}
+		})
+	}
+}
+
+func TestCreationBackRejectsDelayedBranchResults(t *testing.T) {
+	for _, lateError := range []bool{false, true} {
+		t.Run(map[bool]string{false: "success", true: "error"}[lateError], func(t *testing.T) {
+			f := &fakeClient{fn: func(method string, p any) (any, error) {
+				project := projectOf(t, p)
+				switch method {
+				case "project.branches":
+					return api.ProjectBranchesResult{Refs: []plugin.GitRef{{Ref: "refs/heads/main", OID: "tip"}}}, nil
+				case "project.retained_branches":
+					return api.RetainedBranchesResult{Branches: []api.RetainedBranch{{Branch: project + "-branch", OID: "tip"}}}, nil
+				case "origin.refresh":
+					return map[string]any{"origin": map[string]string{"status": "unknown"}}, nil
+				default:
+					return nil, errors.New("unexpected call " + method)
+				}
+			}}
+			m := fixture()
+			m.client = f
+			m.data.projects = []api.ProjectSummary{{Path: "a", Registry: "active"}, {Path: "b", Registry: "active"}}
+			m, _ = press(m, "c")
+			m, _ = press(m, "j")
+			m, first := press(m, "enter")
+			if first == nil || m.form != "branch" || !m.working {
+				t.Fatal("project selection did not start branch observation")
+			}
+			old := first().(actionDone)
+			if lateError {
+				old.err = errors.New("old project unavailable")
+			}
+			m, _ = press(m, "esc")
+			if m.form != "project" || m.working || m.pendingMethod != "" || m.cursor != 0 {
+				t.Fatalf("Back did not leave canceled branch request: form=%s working=%v pending=%s cursor=%d", m.form, m.working, m.pendingMethod, m.cursor)
+			}
+			updated, cmd := m.Update(old)
+			m = updated.(Model)
+			if cmd != nil || m.form != "project" || m.working || m.notice != "" || len(m.choices) != 3 || m.choices[1].id != "a" || m.choices[2].id != "b" {
+				t.Fatalf("late branch result overwrote project choices: %+v", m.choices)
+			}
+			// Deliver after another project request starts: the stale response
+			// must not overwrite its choices or clear its busy/error state.
+			m, _ = press(m, "j")
+			m, _ = press(m, "j")
+			m, second := press(m, "enter")
+			if second == nil || m.creation.project != "b" {
+				t.Fatal("Back left a branch masquerading as a project")
+			}
+			updated, cmd = m.Update(old)
+			m = updated.(Model)
+			if cmd != nil || !m.working || m.pendingMethod != "creation.branches" || len(m.choices) != 0 || m.notice != "" {
+				t.Fatalf("late result changed the new request: choices=%+v working=%v pending=%s notice=%s", m.choices, m.working, m.pendingMethod, m.notice)
+			}
+			updated, _ = m.Update(second())
+			m = updated.(Model)
+			m, _ = press(m, "j")
+			m, _ = press(m, "enter")
+			if r := requestOf[api.SessionCreateRequest](t, m.confirm); m.page != "creation-review" || r.Project != "b" || r.Branch != "b-branch" {
+				t.Fatalf("new project was not kept bound: %+v", r)
+			}
+		})
+	}
+}
+
+func TestHelpRestartsInterruptedBranchRead(t *testing.T) {
+	for _, page := range []string{"create", "retained"} {
+		for _, failed := range []bool{false, true} {
+			t.Run(page+"/"+map[bool]string{false: "success", true: "error"}[failed], func(t *testing.T) {
+				f := &fakeClient{fn: func(method string, p any) (any, error) {
+					if projectOf(t, p) != "app" {
+						t.Fatalf("read changed project: %+v", p)
+					}
+					switch method {
+					case "project.branches":
+						return map[string]any{}, nil
+					case "project.retained_branches":
+						return api.RetainedBranchesResult{Branches: []api.RetainedBranch{{Branch: "retained", OID: "tip"}}}, nil
+					case "origin.refresh":
+						return map[string]any{"origin": map[string]string{"status": "unknown"}}, nil
+					default:
+						t.Fatal("unexpected method " + method)
+						return nil, nil
+					}
+				}}
+				m := fixture()
+				m.client = f
+				m.data.projects = []api.ProjectSummary{{Path: "app", Registry: "active"}}
+				m.data.sessions[2].Project = "app"
+				// Open through actual keys with a response still outstanding.
+				if page == "create" {
+					m, _ = press(m, "c")
+					m, _ = press(m, "j")
+				}
+				key := "b"
+				if page == "create" {
+					key = "enter"
+				}
+				m, cmd := press(m, key)
+				if cmd == nil {
+					t.Fatal("branch read did not start")
+				}
+				old := cmd().(actionDone)
+				old.result = branchInventory{Retained: []api.RetainedBranch{{Branch: "obsolete", OID: "old"}}}
+				m, _ = press(m, "?")
+				if m.page != "help" {
+					t.Fatal("Help did not open")
+				}
+				m, restarted := press(m, "esc")
+				if m.page != page || restarted == nil || !m.working || m.pendingMethod != "creation.branches" {
+					t.Fatalf("Help return did not restart branch loading: page=%s working=%v pending=%s", m.page, m.working, m.pendingMethod)
+				}
+				updated, next := m.Update(old)
+				m = updated.(Model)
+				if next != nil || !m.working || len(m.choices) != 0 {
+					t.Fatal("old read interfered with restarted branch loading")
+				}
+				result := restarted().(actionDone)
+				if failed {
+					result.err = errors.New("branches unavailable")
+				}
+				updated, _ = m.Update(result)
+				m = updated.(Model)
+				if m.working || m.pendingMethod != "" {
+					t.Fatal("restarted read remained pending")
+				}
+				if failed {
+					if m.notice != "branches unavailable" || len(m.choices) != 0 {
+						t.Fatal("restarted read error was not surfaced")
+					}
+					m, _ = press(m, "esc")
+					if m.page == "help" || page == "create" && m.form != "project" {
+						t.Fatal("failed branch read prevented Back")
+					}
+				} else {
+					found := false
+					for _, choice := range m.choices {
+						found = found || choice.id == "retained"
+					}
+					if !found {
+						t.Fatal("fresh branch choices were not loaded")
+					}
+					m, _ = press(m, "?")
+					m, next = press(m, "esc")
+					if next != nil || m.working {
+						t.Fatal("Help restarted an already completed read")
+					}
+				}
+			})
+		}
+	}
+}
+
+func TestHelpReturnDoesNotReplayMutation(t *testing.T) {
+	m := fixture()
+	m.navigate("progress")
+	m.begin(callOf(api.SessionCreate, api.SessionCreateRequest{Project: "app"}))
+	m, _ = press(m, "?")
+	m, cmd := press(m, "esc")
+	if cmd != nil || m.page != "progress" || m.working || m.pendingMethod != "" {
+		t.Fatal("Help return replayed a mutating request")
+	}
+}
+
+func TestRepeatedHelpKeepsInterruptedReadContext(t *testing.T) {
+	m := fixture()
+	m.creation = creationDraft{project: "app"}
+	m.navigate("create")
+	m.form = "branch"
+	m.begin(creationBranchesCall("app"))
+	m, _ = press(m, "?")
+	m, _ = press(m, "?")
+	m, cmd := press(m, "esc")
+	if cmd == nil || m.page != "create" || m.form != "branch" || !m.working {
+		t.Fatal("repeated Help forgot its caller or interrupted read")
+	}
+}
+
+func TestServiceStatesKeepActionsTruthfulInCompactView(t *testing.T) {
+	m := fixture()
+	m.width, m.height = 48, 16
+	m.navigate("services")
+	m.servicesFresh = true
+	m.services = []api.ProjectService{{Name: "p-project-notes-worker.service", State: api.ServiceStopped, Detail: "installed"}}
+	frame := ansi.Strip(m.View().Content)
+	if !strings.Contains(frame, "installed") || !strings.Contains(frame, "s start") || strings.Contains(frame, "s start/stop") {
+		t.Fatalf("unloaded installed service is ambiguous: %s", frame)
+	}
+	m.services[0].State, m.services[0].Detail = api.ServiceRunning, "active (running)"
+	if frame = ansi.Strip(m.View().Content); !strings.Contains(frame, "s stop") {
+		t.Fatal("active service does not offer Stop")
+	}
+	m.servicesFresh = false
+	if frame = ansi.Strip(m.View().Content); strings.Contains(frame, "s stop") || !strings.Contains(frame, "Service observation unavailable/loading") {
+		t.Fatal("unavailable inventory offers active controls")
+	}
+}
+
+func TestAttachmentReturnSelectsNewCreatedSession(t *testing.T) {
+	m := fixture()
+	m.page = "progress"
+	m.selected = m.data.sessions[0].UUID
+	m.contextSession = m.data.sessions[len(m.data.sessions)-1]
+	updated, _ := m.Update(attached{})
+	m = updated.(Model)
+	if m.selected != m.contextSession.UUID {
+		t.Fatal("detach returned to a different session")
+	}
+}
+
+func TestConfirmationAndUUIDRemainReadable(t *testing.T) {
+	m := fixture()
+	m.navigate("confirm")
+	m.review = "Proceed?"
+	if frame := m.View().Content; !strings.Contains(frame, "38;2;227;179;65") || !strings.Contains(ansi.Strip(frame), "Confirm [y/N]") {
+		t.Fatal("confirmation lost its caution style")
+	}
+	m.navigate("sessions")
+	m.width, m.height = 120, 35
+	m.data.sessions[0].UUID = "26d77503-7577-44a1-9315-2ce82e54a52b"
+	m.selected = m.data.sessions[0].UUID
+	m.restoreSelection()
+	if frame := ansi.Strip(m.View().Content); !strings.Contains(frame, m.selected) {
+		t.Fatal("wide pane split UUID despite available width")
+	}
+}
+
+func TestJournalBackRetainsReviewedService(t *testing.T) {
+	m := fixture()
+	m.services = []api.ProjectService{{Name: "p-project-notes-db.service"}, {Name: "p-project-notes-worker.service"}}
+	m.servicesFresh = true
+	m.serviceUnit = m.services[1].Name
+	m.navigate("journal")
+	m, cmd := press(m, "q")
+	if cmd == nil || m.page != "services" || m.cursor != 1 {
+		t.Fatal("journal Back selected a different service")
+	}
+	m, _ = press(m, "s")
+	if m.queuedService == nil || m.queuedService.Unit != m.serviceUnit {
+		t.Fatal("action after journal Back did not capture the reviewed unit")
+	}
+}
+
+func TestServiceHelpBackRetainsUnitAfterInventoryReorder(t *testing.T) {
+	m := fixture()
+	m.services = []api.ProjectService{{Name: "p-project-notes-db.service"}, {Name: "p-project-notes-worker.service"}}
+	m.servicesFresh = true
+	m.navigate("services")
+	m.cursor = 1
+	m, _ = press(m, "?")
+	m.services[0], m.services[1] = m.services[1], m.services[0]
+	m, _ = press(m, "q")
+	if m.page != "services" || m.services[m.cursor].Name != "p-project-notes-worker.service" {
+		t.Fatal("Help Back selected a different service")
+	}
+}
+
+func TestCapacityFeedbackKeepsRemedyAndConfirmationControls(t *testing.T) {
+	for _, size := range [][2]int{{120, 35}, {80, 24}, {48, 16}} {
+		m := fixture()
+		m.width, m.height = size[0], size[1]
+		m.navigate("confirm")
+		m.review = strings.Repeat("Captured project, branch, source and policy.\n", 12)
+		m.notice = errtext.Sentence(api.NewError(api.KindCapacity, api.ReasonSessionCapacity))
+		frame := ansi.Strip(m.View().Content)
+		// The notice wraps between words.
+		flat := strings.Join(strings.Fields(frame), " ")
+		for _, text := range []string{"discard or delete a session", "Stop keeps its slot", "Confirm [y/N]", "q/Esc back"} {
+			if !strings.Contains(flat, text) {
+				t.Fatalf("%vx%v feedback or controls clipped: %q missing in %s", size[0], size[1], text, frame)
+			}
+		}
+		lines := strings.Split(frame, "\n")
+		if len(lines) > m.height {
+			t.Fatal("feedback escaped the viewport")
+		}
+		for _, line := range lines {
+			if ansi.StringWidth(line) > m.width {
+				t.Fatal("feedback escaped terminal width")
+			}
+		}
+	}
+}
+
+// TestNoticeWrapsBetweenWordsWithinThePage checks that a long notice wraps
+// between words to the width the page draws in, so no part is clipped.
+func TestNoticeWrapsBetweenWordsWithinThePage(t *testing.T) {
+	notice := errtext.Sentence(api.NewError(api.KindInternal, api.ReasonStore))
+	for _, page := range []string{"sessions", "confirm"} {
+		for _, size := range [][2]int{{120, 35}, {80, 24}, {48, 16}} {
+			m := fixture()
+			m.width, m.height = size[0], size[1]
+			if page != "sessions" {
+				m.navigate(page)
+			}
+			m.notice = notice
+			lines := m.noticeLines()
+			if got := strings.Join(lines, " "); got != notice {
+				t.Errorf("%s %vx%v wrapped %q", page, size[0], size[1], got)
+			}
+			for _, line := range lines {
+				if ansi.StringWidth(line) > m.pageWidth() || strings.HasPrefix(line, " ") {
+					t.Errorf("%s %vx%v notice line %q does not fit %d columns", page, size[0], size[1], line, m.pageWidth())
+				}
+			}
+			if frame := ansi.Strip(m.View().Content); !strings.Contains(strings.Join(strings.Fields(frame), " "), notice) {
+				t.Errorf("%s %vx%v frame clips the notice:\n%s", page, size[0], size[1], frame)
+			}
+		}
+	}
+}
+
+// TestRetainedBranchesAreReadAgainWithR: after a failed read, Retained
+// branches lists nothing left from an earlier page, and r reads the branches
+// again, so "try again" has a key on the page.
+func TestRetainedBranchesAreReadAgainWithR(t *testing.T) {
+	read := []string{}
+	m := fixture()
+	m.client = &fakeClient{fn: func(_ string, p any) (any, error) {
+		read = append(read, projectOf(t, p))
+		return nil, errors.New("recorded")
+	}}
+	// The branch choices of an earlier creation.
+	m.choices = []row{{id: "\x00new-branch", label: "Create new branch"}, {id: "assigned", label: "assigned"}}
+	m.selected = stoppedID
+	m.restoreSelection()
+	m, _ = press(m, "b")
+	updated, _ := m.Update(actionDone{epoch: m.epoch, method: "creation.branches", err: api.NewError(api.KindFailed, api.ReasonGit)})
+	m = updated.(Model)
+	frame := ansi.Strip(m.View().Content)
+	if !strings.Contains(frame, "r refresh") || strings.Contains(frame, "Create new branch") || len(m.rows()) != 0 {
+		t.Fatalf("failed read of Retained branches:\n%s", frame)
+	}
+	m, cmd := press(m, "r")
+	if cmd == nil || m.pendingMethod != "creation.branches" || m.notice != "" {
+		t.Fatalf("r did not read the branches again: pending %q notice %q", m.pendingMethod, m.notice)
+	}
+	cmd()
+	if len(read) != 1 || read[0] != "a" {
+		t.Fatalf("read projects %q", read)
+	}
+}

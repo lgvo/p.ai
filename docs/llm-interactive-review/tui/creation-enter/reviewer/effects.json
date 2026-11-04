@@ -1,0 +1,34 @@
+{
+  "creation_and_stop_calls": [
+    {
+      "method": "session.create",
+      "params": {
+        "branch": "review/enter-edited",
+        "choice": "new",
+        "key": "tui-e5f96bd69094ebf0e0ad6e3a0c1aff5c",
+        "project": "forge",
+        "source": "0123456789abcdef0123456789abcdef01234567",
+        "v": 1
+      }
+    },
+    {
+      "method": "project.create",
+      "params": {
+        "key": "tui-524d6102e4937502694905c2da3e6b8d",
+        "project": "review-local",
+        "v": 1
+      }
+    },
+    {
+      "method": "session.create",
+      "params": {
+        "branch": "retained/00",
+        "choice": "existing",
+        "key": "tui-bfe1a5d0c26860b8a9f46e9cefb4f3ad",
+        "project": "forge",
+        "v": 1
+      }
+    }
+  ],
+  "stop_calls": 0
+}

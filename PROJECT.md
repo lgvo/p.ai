@@ -2,7 +2,7 @@
 
 This document is authoritative for P's enduring purpose, goals, non-goals,
 project model, and documentation authority. MVP scope and implementation status
-remain in [the MVP snapshot](docs/mvp-status.md); detailed behavior remains with
+remain in [the MVP snapshot](docs/archive/mvp-status.md); detailed behavior remains with
 the subject owners in the [authority map](#authority-map).
 
 ## Purpose
@@ -40,11 +40,15 @@ projects.
 
 Developers can let agents and plugins work independently while their
 capabilities, publication authority, and potential destructive effects remain
-explicit and contained.
+explicit; agents and the plugins that run inside sessions also remain
+contained.
 
-**Success signal:** Agents and plugins cannot exceed their declared grants,
-failures do not silently widen authority, and destructive actions explain what
-will be lost before proceeding.
+**Success signal:** Agents, and plugins that run inside sessions, cannot exceed
+the session's grants. A plugin runs on the host only when trusted host
+configuration selects its exact, protected package; it is trusted code with
+P's authority, and P sends it only what its capability defines. Failures do
+not silently widen authority, and destructive actions explain what will be
+lost before proceeding.
 
 ### Preserve interoperability and continuity
 
@@ -70,8 +74,9 @@ Developers and agents can add integrations and workflows through stable,
 documented plugin contracts without forking or rebuilding P core.
 
 **Success signal:** A plugin can be authored, tested, discovered, and installed
-independently. Trusted developer configuration controls its activation and
-capabilities, after which it can operate autonomously within those grants.
+independently. Trusted developer configuration controls which exact package is
+activated for which capability, after which it can operate autonomously:
+inside a session within the session's grants, or on the host as trusted code.
 
 ## Non-goals
 
@@ -129,8 +134,9 @@ The canonical terms below are defined in the [glossary](GLOSSARY.md).
 - Agents operate inside governed environments but retain ownership of their
   reasoning and workflows.
 - Developers or agents may author and test plugins. Trusted developer
-  configuration controls plugin activation and grants; an activated plugin may
-  operate autonomously only within them.
+  configuration controls plugin activation by exact package; an activated
+  plugin may operate autonomously, inside a session within its grants or on
+  the host as trusted code with P's authority.
 - Existing systems retain authority for source, execution, process
   supervision, terminal behavior, and optional external services. P composes
   and governs their relationships.
@@ -147,17 +153,9 @@ The canonical terms below are defined in the [glossary](GLOSSARY.md).
 | Domain language | [GLOSSARY.md](GLOSSARY.md) | Canonical P terms and boundaries |
 | Product summary | [README.md](README.md) | Human-facing summary; not a competing contract |
 | Documentation rules | [docs/AGENTS.md](docs/AGENTS.md) | Normative ownership and document roles under `docs/` |
-| Project lifecycle | [docs/project-lifecycle.md](docs/project-lifecycle.md) | Project identity, creation, origins, retained branches, and project deletion |
-| Session lifecycle | [docs/session-lifecycle.md](docs/session-lifecycle.md) | Session identity, operations, loss analysis, and recovery |
-| Runtime and isolation | [docs/runtime-isolation.md](docs/runtime-isolation.md) | Runtime placement, systemd hosting, grants, storage, networking, attachment execution, and cleanup |
-| Communication | [docs/communication-boundaries.md](docs/communication-boundaries.md) | Git, RPC, SSH, attachment, build, gateway, and event-handler channel boundaries |
-| Observability | [docs/session-observability.md](docs/session-observability.md) | Public conditions, attachment presence, status reduction, and P events |
-| Environments | [docs/environment-building.md](docs/environment-building.md) | Nix selection, isolated realization, activation, image caching, and collection |
-| Post-MVP model gateway | [docs/model-gateway.md](docs/model-gateway.md) | Retained Bifrost boundary, policy, principal lifecycle, and evolution |
-| Implementation choices | [docs/technology-stack.md](docs/technology-stack.md) | Stack choices, internal seams, dependencies, and unresolved plugin contract |
-| Validation | [docs/development-validations.md](docs/development-validations.md) | Evidence gates; product behavior remains with its subject owner |
-| Current state and work | [docs/mvp-status.md](docs/mvp-status.md) and [docs/missing-pieces.md](docs/missing-pieces.md) | Non-normative snapshot and implementation tracker |
-| Explanation and context | [docs/FAQ.md](docs/FAQ.md), [docs/PR.md](docs/PR.md), and [docs/design-space.md](docs/design-space.md) | Tradeoffs, product narrative, external landscape, positioning, and validation wedges; non-normative |
+| Architecture | [docs/architecture/README.md](docs/architecture/README.md) | Current system structure: major parts, responsibilities, boundaries, permitted dependencies, state ownership and cross-boundary guarantees |
+| TUI change and validation workflow | [docs/tui-validation-workflow.md](docs/tui-validation-workflow.md) | How TUI changes and experience-validation claims are reviewed, validated and recorded |
+| Archived design record | [docs/archive/README.md](docs/archive/README.md) | Design, status and plan documents and the interface rework record as of 471a3eb; historical evidence, not authority |
 
 ## Open directions
 
@@ -165,16 +163,22 @@ Open directions preserve possibilities; they are not commitments, requirements,
 or approved plans.
 
 - MVP must prove the first-class plugin goal through a basic working
-  composition of secure first-party implementations. Packaging, process
-  model, transport, compatibility, capability manifests, installation, and
-  approval UX remain unresolved.
+  composition of secure first-party implementations. The package and
+  activation contract is defined in [plugin contract](docs/archive/plugin-contract.md);
+  the default composition, executable methods and managed CLI installation
+  have automated validation. Authenticated Codex acceptance remains a manual
+  gate; authenticated testing never blocks the browser's fixture-free lifecycle validation.
 - The [session-browser prototype](.prototype/tui-options/DECISIONS.md) records
-  the current reviewed layout and controls. Production TUI integration and
-  scope reconciliation remain open.
+  the reviewed layout and controls guiding the live API-client browser. The
+  [user guide](docs/archive/user-guide.md) distinguishes implemented navigation from
+  prototype-only agent inventory and in-terminal management popups.
 - Additional runtime environments, multi-user operation, service
   orchestration, richer event handlers, and optional multi-instance
   coordination may be explored while preserving the confirmed guidance.
 
-The repository currently contains design rather than a production
-implementation. [Development validations](docs/development-validations.md)
-identify the evidence required before support claims are made.
+The repository contains a CLI-first control plane with serial NixOS/Incus VM
+validation within its documented support boundary.
+[Implementation progress](docs/archive/implementation-progress.md) records the evidence
+and pending manual authenticated Codex acceptance.
+[Development validations](docs/archive/development-validations.md) identify
+the evidence required before support claims are made.

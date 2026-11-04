@@ -1,0 +1,29 @@
+nix-shell dev/tui-test-shell.nix --run 'python3 -B tests/integration/tui-terminal-test.py && python3 -B tests/integration/tui-observe-test.py && python3 -B tests/integration/tui-mock-test.py'
+warning: Nix search path entry '/nix/var/nix/profiles/per-user/root/channels' does not exist, ignoring
+........
+----------------------------------------------------------------------
+Ran 8 tests in 0.384s
+
+OK
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 2.460s
+
+OK
+test_01_navigation_reports_policy_branches_operations_search_resize (__main__.MockTUITests.test_01_navigation_reports_policy_branches_operations_search_resize) ... ok
+test_01_selected_service_summary_states (__main__.MockTUITests.test_01_selected_service_summary_states) ... ok
+test_02_services_journal_and_failures (__main__.MockTUITests.test_02_services_journal_and_failures) ... ok
+test_02b_queued_services_keep_the_captured_unit_and_back_cancels (__main__.MockTUITests.test_02b_queued_services_keep_the_captured_unit_and_back_cancels) ... ok
+test_03_attachment_stop_start_rename_and_cancel (__main__.MockTUITests.test_03_attachment_stop_start_rename_and_cancel) ... ok
+test_04_create_local_origin_retained_and_project (__main__.MockTUITests.test_04_create_local_origin_retained_and_project) ... ok
+test_05_loss_preview_discard_delete_and_error (__main__.MockTUITests.test_05_loss_preview_discard_delete_and_error) ... ok
+test_06_empty_inventory_creation_and_quit (__main__.MockTUITests.test_06_empty_inventory_creation_and_quit) ... ok
+test_06_theme_detection_and_overrides (__main__.MockTUITests.test_06_theme_detection_and_overrides) ... ok
+test_07_launcher_owns_background_server_and_cleans_up (__main__.MockTUITests.test_07_launcher_owns_background_server_and_cleans_up) ... ok
+test_08_launcher_term_while_attached_cleans_up (__main__.MockTUITests.test_08_launcher_term_while_attached_cleans_up) ... ok
+test_zz_all_tui_rpc_actions_covered (__main__.MockTUITests.test_zz_all_tui_rpc_actions_covered) ... ok
+
+----------------------------------------------------------------------
+Ran 12 tests in 19.421s
+
+OK

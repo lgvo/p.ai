@@ -1,0 +1,38 @@
+{"op": "start", "label": "start", "wait": 1.5, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1793726283.9403837, "bytes": 6411, "run": "before"}
+{"op": "send", "label": "discard-running", "wait": 1.0, "text": "d", "hex": null, "frame": "0002-discard-running", "timestamp": 1793726288.4886513, "bytes": 7741, "run": "before"}
+{"op": "send", "label": "cancel-discard", "wait": 0.6, "text": "n", "hex": null, "frame": "0003-cancel-discard", "timestamp": 1793726294.2814684, "bytes": 13890, "run": "before"}
+{"op": "send", "label": "delete-running", "wait": 1.0, "text": "X", "hex": null, "frame": "0004-delete-running", "timestamp": 1793726296.1354895, "bytes": 16098, "run": "before"}
+{"op": "send", "label": "cancel-delete", "wait": 0.6, "text": "n", "hex": null, "frame": "0005-cancel-delete", "timestamp": 1793726310.0848556, "bytes": 22247, "run": "before"}
+{"op": "send", "label": "stop", "wait": 1.0, "text": "s", "hex": null, "frame": "0006-stop", "timestamp": 1793726311.9527612, "bytes": 22766, "run": "before"}
+{"op": "send", "label": "stop-confirm", "wait": 2.0, "text": "y", "hex": null, "frame": "0007-stop-confirm", "timestamp": 1793726318.9392505, "bytes": 23235, "run": "before"}
+{"op": "send", "label": "back", "wait": 0.8, "text": null, "hex": "1b", "frame": "0008-back", "timestamp": 1793726324.514341, "bytes": 29064, "run": "before"}
+{"op": "send", "label": "discard-stopped", "wait": 1.0, "text": "d", "hex": null, "frame": "0009-discard-stopped", "timestamp": 1793726326.487877, "bytes": 30307, "run": "before"}
+{"op": "send", "label": "cancel", "wait": 0.6, "text": "n", "hex": null, "frame": "0010-cancel", "timestamp": 1793726335.6020434, "bytes": 36136, "run": "before"}
+{"op": "send", "label": "delete-stopped", "wait": 1.0, "text": "X", "hex": null, "frame": "0011-delete-stopped", "timestamp": 1793726337.4546227, "bytes": 37486, "run": "before"}
+{"op": "send", "label": "cancel", "wait": 0.6, "text": "n", "hex": null, "frame": "0012-cancel", "timestamp": 1793726338.8692806, "bytes": 43315, "run": "before"}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "0013-close", "timestamp": 1793726339.9385595, "bytes": 43315, "run": "before"}
+{"op": "start", "label": "start", "wait": 1.5, "background": "dark", "cols": 120, "rows": 35, "frame": "0001-start", "timestamp": 1793726364.9887624, "bytes": 6411, "run": "after"}
+{"op": "send", "label": "discard-running", "wait": 1.0, "text": "d", "hex": null, "frame": "0002-discard-running", "timestamp": 1793726369.591042, "bytes": 7715, "run": "after"}
+{"op": "resize", "label": "review-80x24", "wait": 0.8, "cols": 80, "rows": 24, "frame": "0003-review-80x24", "timestamp": 1793726379.602572, "bytes": 8842, "run": "after"}
+{"op": "resize", "label": "review-48x16", "wait": 0.8, "cols": 48, "rows": 16, "frame": "0004-review-48x16", "timestamp": 1793726381.17797, "bytes": 9502, "run": "after"}
+{"op": "send", "label": "pgdn-48x16", "wait": 0.6, "text": null, "hex": "1b5b367e", "frame": "0005-pgdn-48x16", "timestamp": 1793726386.9111326, "bytes": 9982, "run": "after"}
+{"op": "send", "label": "pgdn2-48x16", "wait": 0.6, "text": null, "hex": "1b5b367e", "frame": "0006-pgdn2-48x16", "timestamp": 1793726388.273819, "bytes": 10191, "run": "after"}
+{"op": "resize", "label": "review-back-120x35", "wait": 0.8, "cols": 120, "rows": 35, "frame": "0007-review-back-120x35", "timestamp": 1793726393.7520769, "bytes": 12106, "run": "after"}
+{"op": "send", "label": "esc-cancel", "wait": 0.8, "text": null, "hex": "1b", "frame": "0008-esc-cancel", "timestamp": 1793726395.384769, "bytes": 18255, "run": "after"}
+{"op": "resize", "label": "picker-80x24", "wait": 0.8, "cols": 80, "rows": 24, "frame": "0009-picker-80x24", "timestamp": 1793726400.1843712, "bytes": 22217, "run": "after"}
+{"op": "send", "label": "delete-running-80x24", "wait": 1.0, "text": "X", "hex": null, "frame": "0010-delete-running-80x24", "timestamp": 1793726401.9643009, "bytes": 23489, "run": "after"}
+{"op": "send", "label": "q-cancel", "wait": 0.8, "text": "q", "hex": null, "frame": "0011-q-cancel", "timestamp": 1793726408.1792073, "bytes": 26682, "run": "after"}
+{"op": "resize", "label": "picker-120x35", "wait": 0.8, "cols": 120, "rows": 35, "frame": "0012-picker-120x35", "timestamp": 1793726409.805425, "bytes": 33142, "run": "after"}
+{"op": "send", "label": "stop", "wait": 1.0, "text": "s", "hex": null, "frame": "0013-stop", "timestamp": 1793726411.7044544, "bytes": 33661, "run": "after"}
+{"op": "send", "label": "stop-confirm", "wait": 2.0, "text": "y", "hex": null, "frame": "0014-stop-confirm", "timestamp": 1793726414.5302372, "bytes": 34130, "run": "after"}
+{"op": "send", "label": "back", "wait": 0.8, "text": null, "hex": "1b", "frame": "0015-back", "timestamp": 1793726420.7466586, "bytes": 39959, "run": "after"}
+{"op": "send", "label": "discard-stopped", "wait": 1.0, "text": "d", "hex": null, "frame": "0016-discard-stopped", "timestamp": 1793726422.623968, "bytes": 41176, "run": "after"}
+{"op": "send", "label": "cancel", "wait": 0.6, "text": "n", "hex": null, "frame": "0017-cancel", "timestamp": 1793726424.0997999, "bytes": 47005, "run": "after"}
+{"op": "send", "label": "delete-stopped", "wait": 1.0, "text": "X", "hex": null, "frame": "0018-delete-stopped", "timestamp": 1793726425.9489875, "bytes": 48329, "run": "after"}
+{"op": "resize", "label": "delete-stopped-48x16", "wait": 0.8, "cols": 48, "rows": 16, "frame": "0019-delete-stopped-48x16", "timestamp": 1793726432.2658212, "bytes": 49012, "run": "after"}
+{"op": "send", "label": "cancel-48x16", "wait": 0.6, "text": "n", "hex": null, "frame": "0020-cancel-48x16", "timestamp": 1793726433.6306036, "bytes": 50452, "run": "after"}
+{"op": "resize", "label": "picker-back-120x35", "wait": 0.8, "cols": 120, "rows": 35, "frame": "0021-picker-back-120x35", "timestamp": 1793726435.2243316, "bytes": 56285, "run": "after"}
+{"op": "send", "label": "discard-stopped-2", "wait": 1.0, "text": "d", "hex": null, "frame": "0022-discard-stopped-2", "timestamp": 1793726441.9006047, "bytes": 57905, "run": "after"}
+{"op": "send", "label": "authorize-discard", "wait": 2.0, "text": "y", "hex": null, "frame": "0023-authorize-discard", "timestamp": 1793726444.8411796, "bytes": 58613, "run": "after"}
+{"op": "send", "label": "back-after-discard", "wait": 0.8, "text": null, "hex": "1b", "frame": "0024-back-after-discard", "timestamp": 1793726452.471719, "bytes": 64840, "run": "after"}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "0025-close", "timestamp": 1793726453.551777, "bytes": 64840, "run": "after"}

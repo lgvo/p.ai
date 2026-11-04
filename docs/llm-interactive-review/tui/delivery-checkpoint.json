@@ -1,0 +1,70 @@
+{
+  "inventory": 58,
+  "executed": 58,
+  "unique": 58,
+  "missing": [],
+  "unexpected": [],
+  "duplicates": [],
+  "full_pass": true,
+  "fresh_disks_removed": true,
+  "groups": [
+    {
+      "log": "/home/lgvo/p.ai/.cache/p-vm/integration-20261001T034040Z-2025347.log",
+      "sha256": "13dc44d86d50e0708aaa6e6bfa02aa31ec4703d2956c8921f1dd80ca471bb322",
+      "steps": 37,
+      "selected_pass": true,
+      "smoke_pass": true,
+      "smoke_fail": false,
+      "powered_off": true
+    },
+    {
+      "log": "/home/lgvo/p.ai/.cache/p-vm/integration-20261001T040510Z-2027733.log",
+      "sha256": "926f89beb121f273cca3ab9249428da300f3689d35f4f07fc69a4cdbb0a09c3d",
+      "steps": 1,
+      "selected_pass": true,
+      "smoke_pass": true,
+      "smoke_fail": false,
+      "powered_off": true
+    },
+    {
+      "log": "/home/lgvo/p.ai/.cache/p-vm/integration-20261001T040719Z-2029340.log",
+      "sha256": "9feac2940ba1f220107d4782f13df4ddc85c6b514c158953b1c9914bcfd9c79d",
+      "steps": 20,
+      "selected_pass": true,
+      "smoke_pass": true,
+      "smoke_fail": false,
+      "powered_off": true
+    }
+  ],
+  "command": "nix develop -c just test",
+  "exit_code": 0,
+  "completed_date_utc": "2026-10-01",
+  "driver_log": "/tmp/p-plan-delivery-test.log",
+  "driver_log_sha256": "99c9ad07529d93495a5c33233545a12e7ae43f1b1220230879acbdf14fdfe3c2",
+  "checks": {
+    "flake_evaluation": "passed",
+    "go_tests": "passed",
+    "python_unit_tests": 17,
+    "terminal_protocol_tests": 8,
+    "observer_real_pty_tests": 3,
+    "vm_selection_unit_checks": "passed",
+    "package_build": "passed",
+    "sample_real_postgresql_http_tests": 13,
+    "host_qemu_processes_after_completion": 0,
+    "integration_lock_released": true
+  },
+  "source_sha256": {
+    "tests/integration/steps/57-developer-workflow.sh": "70c0dda59e62544958d96358a75fa3ce8e8878978dc7723e1491564e4015d07a",
+    "tests/integration/steps/58-notes-tui.sh": "6f59313890ff249b105fac1a0c20ff37e2fe5a999f239e40123a4612ba2360aa",
+    "tests/integration/tui_notes_driver.py": "abb2443dccc4879a6392cad1b8abd904f080276f78d83cba77a35e8a3adcae22",
+    "examples/notes/db.py": "4af4428b61e118d55cf38c1ec1690378864b7262d708a8979178855f2f4bfeb4",
+    "examples/notes/web.py": "af671c839013f5b12a41c3c98a43ed9ab01f29c8ff7a40ad38331d235ac17ca3",
+    "examples/notes/tests.py": "95747b3e3df5e8571629a61dc5da2bb493a77d423bf58ccfe86ebca91c7d5147",
+    "internal/control/lifecycle_store.go": "8120320a7376cc9cec5f03c41474172299192595b5c455b05455c59a5216d55b",
+    "internal/control/rpc_lifecycle.go": "23163f046de4a5581a67016a4469e1107805183e01080d39412677b7f0e714ab",
+    "internal/control/session_list_removal_test.go": "8cc76fa1e7e2502d4cc3716c111a6b799dfaa707da3156e05c4ea20d58be0946"
+  },
+  "p_binary": "/nix/store/k2ci9jcnfw3c1lxnbxjmsyf2mrhisxpz-p-0.1.0-dev/bin/p",
+  "p_binary_sha256": "c07c9532296ce2d9d77a2f270c8fe8500cf3b92b58819401de216b76b3718101",
+  "notes_runtime_fingerprint": "311da5a776078c8d2027659e97927bf0d817491af15c080fe56206217a68566d"
+}

@@ -1,0 +1,60 @@
+{
+  "date": "2026-11-02",
+  "base_revision": "33722e332b55c035c783e7de786e15a51be147f9",
+  "state": "uncommitted commit-image TUI change on rework-lane-b; other packages changing concurrently in the same tree",
+  "setup": "fresh prototype (.prototype/tui-options, portfolio); before: p and tui-mock built from git archive of base_revision, run against a fresh portfolio fixture with --theme dark; after: ./dev/tui-mock --dataset portfolio --theme dark (the just tui-mock recipe) from the working tree",
+  "dimensions": [
+    [
+      120,
+      35
+    ],
+    [
+      80,
+      24
+    ],
+    [
+      48,
+      16
+    ]
+  ],
+  "observed_before": "The mock never sets an environment view on sessions, so before this change neither the p policy page nor Details showed any environment lines; the seven-line environment block existed only in code. The prototype's p page (Policy comparison) has no environment or image facts and the prototype has no D page: image facts are outside prototype scope.",
+  "navigated_after": "forge / feat/device-login (mock session with a reused devShell image): p, Back, D, G, p from Details, Back to Details, Back; orbit / fix/cache-race (no image view): p, D, G; ? help; 80x24: p, D, PgDn; 48x16 on Details: G, k, kkk, p, G, Back, Back; resize to 120x35 on the policy page; quit",
+  "review_result": "passed: both pages show Environment, Source commit, Image (state), System, Base image and Image fingerprint after the policy facts, complete and readable at 120x35, 80x24 and 48x16 (fingerprints wrap after their label like the policy digest); sessions without an image view show none; title, help line, Back paths and scroll controls unchanged. No defect found in the changed presentation.",
+  "observations_not_changed": [
+    "Details at 120x35 for a session with a report and three services now runs three lines past the visible capacity (height-8); the last facts need j/PgDn/G, which the page advertises. Existing inspection-page capacity rule.",
+    "A session without an image view shows the 'Session policy and environment' page with no environment lines and no note why. Unchanged behavior.",
+    "The branch-assigned progress note is unreachable in the mock (its operations complete at once); reviewed by reading: after branch-assigned creation prepares the commit image from the captured source and its environment, so the note stays true and was not changed."
+  ],
+  "tests": {
+    "component": "go test ./internal/tui/... ./tests/integration/cmd/tui-mock/... passed; TestPolicyAndDetailsShowTheSessionCommitImage and the updated long image fingerprint case failed before the change",
+    "tui_gate": "just tui-tests passed: 8 terminal, 9 observer, 12 mock cases"
+  },
+  "boundary": "mock/socket presentation and navigation only; the image view's backend production (control.CreationImageView) is another lane's change; no native Incus/VM acceptance claimed",
+  "raw_capture_destination": "session scratchpad (not retained)",
+  "sha256": {
+    "internal/tui/view.go": "eda7be146088b6b7783d7564037881ae42af655cbe1008eddf7964f17320a5f8",
+    "internal/tui/navigation_test.go": "ef9e1f7bc405c6e4b6d31f4755ac8550fb5c08be1cda621759c59215b8a2f0f7",
+    "internal/tui/model_test.go": "c67a84a64e3bcaee7d9a59de9380333bf2474e0a1a391941e72e6da092efae8f",
+    "tests/integration/cmd/tui-mock/main.go": "7c88bcbe24375ef6bb31df557dbbfceadb1dcb53a0a175cbf695cd8eec048aa7",
+    "after p (/tmp/p-tui.FsLdYL/p)": "58764ee47ca42108a7dc4629d9fe544756e8921b98db879a0f71e64e071ceecc",
+    "after tui-mock server (/tmp/p-tui.FsLdYL/server)": "46afa72cf6c47ed953e65fb2b4813cb51c798008e2e65066d1bf6f831ed16f11",
+    "before p": "dd8ec19864b31814a9360738e42cff8acc9fa5980c4cbcad3cd41b670bd8ffdc",
+    "before tui-mock server": "4d687cf6cee9e3202b15b0491b96fbb106460c9437b8727af7d09958b5601a0c",
+    "prototype": "b5f9709184305342a24426043788307219d46d5513c5a2b356e7c4faba2aa4d0"
+  },
+  "artifacts": {
+    "actions.ndjson": "5026807751c36ffb742140782d8d4f086c7191e2ae3df26b6e17d23c129d3fe0",
+    "after-0003-policy-image-120x35.png": "ca935efdd1cd2cb74b70d331f6c16265df2dd487a2beeb05dbb14c46aefc9a14",
+    "after-0005-details-image-120x35.png": "5ad7d3c7881df293bb40c00e62d1834445ee3902c587f0319f22093dc4da4d1e",
+    "after-0006-details-end-image-120x35.png": "fa0f0f80ec26edb01d7d149d5853a284b0f6fd541949c44a52b1f3e32590b99a",
+    "after-0011-policy-no-image.png": "c78a5c4f994bcb3b1b77baecbdae23722057b45608f8dfa2770e66f2fa675d40",
+    "after-0020-policy-image-80x24.png": "7d3d4f68e6a3af7121e7307156867776067b8f112ecf39259dc1fa6e49227642",
+    "after-0023-details-pgdn-80x24.png": "e7da9d47ddc42b70559268b72bd213e80a81a4b9b8355f30ee43d8c03dc265fc",
+    "after-0027-details-environment-48x16.png": "58803a20456eceea5e079068e6b2b4bad8e5174cba2f64e5a856b35197a1a2c9",
+    "after-0029-policy-end-48x16.png": "de86d5483e049f708e75c57091951742e001271849062a7d00d04d0fbf03f005",
+    "before-0003-policy-no-environment.png": "b6ca00cfa36c6e21c3bb87904fdfe409451e8cab80ea69990da821cc85cc2b08",
+    "before-0006-details-end-no-environment.png": "2bf53522d347b3c587159b62cb529b13b8524ea6ca80bde12409ea334903dbd2",
+    "before-0009-policy-48x16.png": "f3d81331046537902fc97e29482201fa9db44b1799a3dd814b041e9c650adc88",
+    "prototype-0003-policy.png": "04d7606762b04deda2f53fe13201de3456f2da18ffd5bbc0a1d3ce14e995efd3"
+  }
+}

@@ -1,0 +1,34 @@
+{
+  "date": "2026-11-03",
+  "head": "8d42f6f",
+  "working_tree": "run 'after2' built from the step3-c2 worktree at 8d42f6f with a clean tree (only this evidence directory untracked), GOFLAGS=-buildvcs=false. Run 'after' was built from 3fe08db plus uncommitted non-TUI edits (later amended to 10e320a); its internal/tui, internal/errtext, tests/integration/cmd/tui-mock and dev files were identical to 3fe08db",
+  "scope": "Production p tui against the disposable mock socket (just tui-mock --dataset small --theme dark): the operations list (O), the operation page (Enter), Retry (r) and the completed state. The mock's only operation is blocked with reason runtime; a failed operation with a reason was not rendered. No Incus, Git or real-daemon claim",
+  "before": "/home/lgvo/p.ai at 3010936 (run 'before'): its mock operation is failed with diagnostic 'Fixture failure: branch conflict. Press r to retry.' and no reason",
+  "runs": {
+    "before": "O list at 120x35, 80x24, 48x16; operation page at all sizes; r; completed at all sizes; Back; O list completed",
+    "after": "the same path on the c2 build, plus j and G on the 48x16 page",
+    "after2": "repeat on 8d42f6f: O, Enter on the blocked operation at 120x35, 80x24 and 48x16 (G at 48x16), r and the completed page at 120x35"
+  },
+  "sizes": [
+    "120x35",
+    "80x24",
+    "48x16"
+  ],
+  "final_files_sha256": {
+    "internal/errtext/errtext.go": "ebcc9849ebc8d913bc9a413f2fac8a5ad2671cb968eb4d452f78c6da05343e5a",
+    "internal/tui/view.go": "93bd65037de77f384d8cb6a09fd0d593fce29343be694b98577bd11bdc70d625",
+    "internal/tui/model.go": "93859af18f5002c525ee606fe2ffc9af0cfbed9250826719990a52df9438f06a",
+    "tests/integration/cmd/tui-mock/main.go": "fe204f641468100f4206e59c0174ec37402b727d9a4a5d12ae12f42908c01ec3",
+    "dev/tui-mock": "ee83826cd9b27523c21d1641f8333b6bf9bf8a461c17ae7ec560a2f24c69ccc7",
+    "dev/tui-test-shell.nix": "c51028bb02a84fb20da3c3be84d17156f0f85b1e0c1e602c7b20b2e18229b505"
+  },
+  "component_tests": "go test ./internal/tui ./internal/errtext ./tests/integration/cmd/tui-mock on 8d42f6f: ok",
+  "tui_tests": "just tui-tests on 8d42f6f: 12 tests OK (19.6 s)",
+  "findings": {
+    "O1": "fixed in 8d42f6f by withdrawing the list change: rows keep the diagnostic as before and the reason shows on the operation page only; the list still shows only 'forge · session.rename · blocked / rename' (row details are not drawn)",
+    "O2": "fixed in 8d42f6f: the page shows 'The runtime failed; check Incus. Retry it once that is resolved.' and, on its own line, 'Diagnostic: Incus did not answer within 30 seconds' (one line each at 120x35 and 80x24)",
+    "O3": "open (pre-existing layout): at 48x16 the page shows 8 body rows and leaves 6 empty; on 8d42f6f the sentence takes two lines and the Diagnostic line is entirely below the fold until j or G Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): the page now draws 12 body rows at 48x16; the blocked page shows the sentence and the whole Diagnostic on its first screen (tui-fixes after-0005). Its note starts on the last row and ends one j lower (tui-fixes T1)",
+    "O4": "open (pre-existing key hint): 'r retry operation' is offered for every status, including the completed page; for a failed operation the sentence 'It ended; start a new request.' is right and the hint misleads (failed not in the mock) Resolved 2026-11-03 in the TUI fixes review (tui-fixes/checkpoint.json): 'r retry operation' and r are offered for a blocked operation only; the completed page reads 'j/k/Pg scroll · q/Esc back' (tui-fixes after-0007, after-0009)"
+  },
+  "findings_open": 0
+}

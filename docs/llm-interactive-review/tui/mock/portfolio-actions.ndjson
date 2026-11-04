@@ -1,0 +1,27 @@
+{"op": "start", "label": "start", "wait": 0.2, "cols": 120, "rows": 35, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0001-start", "timestamp": 1790859778.6663294, "bytes": 3241}
+{"op": "send", "label": "services", "wait": 0.2, "text": "S", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0002-services", "timestamp": 1790859792.4237683, "bytes": 4986}
+{"op": "send", "label": "journal", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0003-journal", "timestamp": 1790859807.2298796, "bytes": 7791}
+{"op": "send", "label": "browser-return", "wait": 0.2, "text": "qq", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0004-browser-return", "timestamp": 1790859822.4512663, "bytes": 11012}
+{"op": "send", "label": "enter-session", "wait": 1.0, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0005-enter-session", "timestamp": 1790859840.8089867, "bytes": 12717}
+{"op": "send", "label": "terminal-command", "wait": 0.2, "text": "printf '%s%s\\n' MOCK_ WORKS; echo kept > kept.txt", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0006-terminal-command", "timestamp": 1790859863.9126785, "bytes": 12864}
+{"op": "send", "label": "command-result", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0007-command-result", "timestamp": 1790859868.971836, "bytes": 12888}
+{"op": "resize", "label": "terminal-80x24", "wait": 0.2, "cols": 80, "rows": 24, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0008-terminal-80x24", "timestamp": 1790859884.8822308, "bytes": 13275}
+{"op": "send", "label": "detach", "wait": 1.0, "text": null, "hex": "0264", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0009-detach", "timestamp": 1790859900.2207344, "bytes": 15626}
+{"op": "send", "label": "reenter", "wait": 1.0, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0010-reenter", "timestamp": 1790859916.535688, "bytes": 17334}
+{"op": "send", "label": "persistent-file", "wait": 0.2, "text": "cat kept.txt", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0011-persistent-file", "timestamp": 1790859974.2417433, "bytes": 17346}
+{"op": "send", "label": "persistent-result", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0012-persistent-result", "timestamp": 1790859978.8677754, "bytes": 17364}
+{"op": "send", "label": "second-detach", "wait": 1.0, "text": null, "hex": "0264", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0013-second-detach", "timestamp": 1790859995.5700262, "bytes": 19715}
+{"op": "resize", "label": "browser-48x16", "wait": 0.2, "cols": 48, "rows": 16, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0014-browser-48x16", "timestamp": 1790860000.5834522, "bytes": 20720}
+{"op": "resize", "label": "browser-restored", "wait": 0.2, "cols": 120, "rows": 35, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0015-browser-restored", "timestamp": 1790860183.5998995, "bytes": 23792}
+{"op": "send", "label": "create-project-selector", "wait": 0.2, "text": "c", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0016-create-project-selector", "timestamp": 1790860187.7649353, "bytes": 25519}
+{"op": "send", "label": "create-project-search", "wait": 0.2, "text": "/forge", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0017-create-project-search", "timestamp": 1790860334.7762296, "bytes": 25872}
+{"op": "send", "label": "search-confirm", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0018-search-confirm", "timestamp": 1790860457.2264433, "bytes": 25872}
+{"op": "send", "label": "branches-loaded", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0019-branches-loaded", "timestamp": 1790860463.5378203, "bytes": 26594}
+{"op": "send", "label": "source-options", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0020-source-options", "timestamp": 1790860512.9250567, "bytes": 27480}
+{"op": "send", "label": "branch-name", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0021-branch-name", "timestamp": 1790860638.5167391, "bytes": 27686}
+{"op": "send", "label": "named-branch", "wait": 0.2, "text": "feat/mock-review", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0022-named-branch", "timestamp": 1790860643.437491, "bytes": 27712}
+{"op": "send", "label": "create-confirmation", "wait": 0.2, "text": null, "hex": "0d", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0023-create-confirmation", "timestamp": 1790860649.2943308, "bytes": 28268}
+{"op": "send", "label": "creation-entry", "wait": 1.0, "text": "y", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0024-creation-entry", "timestamp": 1790860759.3750887, "bytes": 29917}
+{"op": "send", "label": "created-detach", "wait": 1.0, "text": null, "hex": "0264", "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0025-created-detach", "timestamp": 1790860852.873032, "bytes": 33405}
+{"op": "send", "label": "quit", "wait": 0.2, "text": "q", "hex": null, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0026-quit", "timestamp": 1790860895.0560036, "bytes": 33440}
+{"op": "close", "label": "close", "wait": 0.2, "frame": "/home/lgvo/p.ai/.cache/tui-mock-review/0027-close", "timestamp": 1790860900.7860575, "bytes": 33440}
