@@ -382,7 +382,7 @@ Where the landed interface fills in or departs from the proposal:
 | Operation | The driver must |
 |---|---|
 | All | Act only on P's repositories in its configured storage. Read native state fresh on every call; after an error, claim nothing. Never run code or configuration a repository can change: hooks, filters, repository config, submodules, lazy fetch. Never prune an object: P has no garbage collection, and a pending creation relies on an origin commit that no head holds yet. Accept every value `CheckNames` accepts, refuse others with `ErrInvalid`, and return only names it accepts. |
-| `Check` | Prove that its storage is private to P's account and that its Git tools are present, at start and before every mutation; refuse rather than proceed. As landed, the bundled driver's `Check` proves the storage and runs `git --version`, and a mutation proves the storage again; neither runs `ssh`, whose absence shows only when origin work runs it. |
+| `Check` | Prove that its storage is private to P's account and that its Git tools are present, at start and before every mutation; refuse rather than proceed. As landed, the bundled driver's `Check` proves the storage, runs `git --version`, and since 623946a runs the configured `ssh` with `-V` in the environment origin work gives it, refusing unless it exits 0 and prints OpenSSH's version; a mutation proves the storage again. Before 623946a, a missing or broken `ssh` showed only when origin work ran it. |
 | `CheckNames` | Decide from each value and its kind only, offline, the same way every time. Return each value as core uses it: a creation source as a branch or a commit ID, so core picks `InspectBranch` or `InspectCommit`, and a publication destination as its branch name, from which core builds the `origin-branch` target ([plan-shape.md](plan-shape.md#targets)); core strips no prefix itself. The bundled driver keeps today's rule for each field: `validBranch`, or `ValidateRenameBranch` with `git check-ref-format` for renamed and retained branches; `ValidGitOriginRef`; a creation source that is a head ref or a commit ID; `ValidateOriginURL`; `validOID`. The rules now live in internal/sourcedriver/gitnames, which the in-memory driver shares. |
 | `CreateRepository` | Converge, so a repeated call is safe: make the repository complete or not at all, keep an existing one, and leave its default branch `main`, as `git.project.ensure` does. |
 | `DeleteRepository` | Act only on the given incarnation; afterwards the project's repository is absent. Safe to call again at the same incarnation. |
@@ -782,7 +782,9 @@ rest.
   today's gitservice tests:
   - repositories: creation converges and leaves `main`; deletion refuses
     another incarnation and is safe to repeat; an unsafe storage directory
-    fails `Check`;
+    fails `Check`; without its origin transport (on the bundled driver, the
+    configured `ssh`), a driver fails `Check` and every origin is
+    `ErrUnavailable` (since 623946a);
   - heads: creation refuses an existing head at the same tip and a dangling
     symbolic ref; deletion refuses a moved tip; no effect before the gate or
     after a failing one; more than 1024 heads is `ErrLimit`; a head moved

@@ -13,11 +13,15 @@ runs in wazero with no ambient authority and reaches the host only through a
 broker that core reauthorizes, so it cannot exceed its grant. It also decides
 almost nothing.
 
-**Landed so far:** step 9's source driver replaced source-git, whose
-package, broker and module went in S5 (e240457), and plugin part 1
-(6e43794) made tmux-host's files the Incus driver's own. P now ships two
-packages, file-log and codex-adapter. Part 2, the rest of the proposal
-below, is in progress.
+**Landed:** step 9's source driver replaced source-git, whose package,
+broker and module went in S5 (e240457); plugin part 1 (6e43794) made
+tmux-host's files the Incus driver's own; and plugin part 2 (818c627) landed
+the rest of the proposal below. The event handler is now the executable
+`p-event-file`, packages are `p.plugin/v2`, host configuration selects them
+by path and SHA-256, and the activation file, plugin grants, WASI and
+wazero are gone. P ships two packages, file-log and codex-adapter. Each section below
+says where part 2 differs from the proposal; the
+[plugin contract](../docs/plugin-contract.md) describes the result.
 
 **Decided by the maintainer on 2026-11-02:**
 
@@ -40,15 +44,19 @@ below, is in progress.
   selected separately. Landed in part 1.
 - **The event handler becomes the one executable plugin capability:** a
   native process the daemon starts and talks to over the driver's protocol.
+  Landed in part 2.
 - **The Codex adapter stays a package of files**, handed to the driver in
-  `Session.Assets`.
+  `Session.Assets`. Landed in part 2.
 - Host configuration selects a plugin by path and SHA-256, as it selects the
   drivers. Every start checks the package's owner, modes and links before its
   digest. The activation file, grant lists, WASI, the brokers and wazero go.
+  Landed in part 2; the agent adapter, which P never starts, is checked by
+  its digest only.
 
 An executable plugin gains the authority of P's account. The maintainer
 accepted this on 2026-11-02 and keeps OS confinement as a later improvement
-([Trust](#trust)).
+([Trust](#trust)); part 2 recorded it as debt
+([state-safety risks](../docs/debts/state-safety.md#executable-plugins-run-with-ps-authority)).
 
 ## Before and after
 
@@ -142,6 +150,14 @@ native filter. Core keeps event reduction and validation, the 64-event queue,
 the 2-second deadline and the dropped-events diagnostic; a handler failure
 stays diagnostic and never rolls back state.
 
+Landed in part 2 (818c627): `p-event-file` (cmd/p-event-file) runs the
+append code, which moved from internal/plugin/filelog.go to
+internal/eventfile, and the example (plugins/examples/filter-log) is a native
+handler that appends only the events saying a session became ready and skips
+the rest. Event validation, with the allowed field values, is
+internal/eventhandler (event.go); reduction, the queue, the deadline and the
+drop diagnostic stay the daemon's (internal/daemon/events.go).
+
 ### The Codex adapter stays a package of files
 
 P never runs it: Codex's hooks run it inside the session, and it sends
@@ -154,6 +170,12 @@ hands the verified file to the driver in `Session.Assets`, and the Incus
 driver installs it at today's `/usr/libexec/p/codex-adapter`. Part 1 found
 that step 8 had already made this change. The grant list goes; the creation
 pin and runtime-kit's byte check stay.
+
+Landed in part 2: the manifest names no grant, `runtime.agent_adapter` is
+`{path, sha256}`, and the daemon reads the package once at start and holds
+the bytes it hashed (`plugin.ReadAgentAdapter`). Since P never starts the
+adapter, it checks only the digest, not the owners, modes and link counts
+that the launch checks require of an executable plugin ([Trust](#trust)).
 
 **The session RPC keeps its per-message `v`.** [wire-types.md](wire-types.md)
 left this to step 9. The adapter opens one connection per report and sends one
@@ -204,6 +226,19 @@ The `event-handler` capability, as a sketch:
 
 Events go one at a time, in order, each with today's 2-second deadline.
 
+Landed in part 2 as internal/eventhandler, over internal/driverwire. The
+hello takes driverwire's shape: P sends
+`{protocol, config, core: {capability}}` with the protocol
+`p.event-handler/v1`, and the handler answers
+`{protocol, capabilities: {id, version}}`. P also refuses a handler whose ID
+and version differ from its package manifest's; the bundled manifests are
+version 0.2.0. One departure: the handler's output is **not** bounded.
+Launch gives every process it starts, both drivers included, the daemon's own
+standard error as its standard output and error, with no limit, so the output
+reaches only the daemon's log, never API clients, but can flood it. This is
+recorded as debt
+([state-safety risks](../docs/debts/state-safety.md#a-drivers-or-plugins-output-is-not-bounded)).
+
 ### Lifecycle
 
 - **Start.** At daemon start, after the launch checks ([Trust](#trust)). A
@@ -217,6 +252,17 @@ Events go one at a time, in order, each with today's 2-second deadline.
 - **Stop.** The daemon closes the socket, waits briefly, then kills the
   process group.
 
+Landed in part 2 (internal/eventhandler/supervise, on driverwire's launch).
+Restarts back off from 100 ms, doubling up to 30 seconds. A missed 2-second
+deadline cuts the handler's connection, so it is killed and started again;
+the daemon logs the miss and goes on with the next event. An event sent while
+the handler is down is dropped and counted, and the drop is logged; the
+daemon logs each of these diagnostics at most once a minute. A restart that
+fails its launch checks, as after the package changed, leaves the handler
+stopped until the daemon restarts (`StopAfterFailedCheck`), while a restart
+that fails otherwise, such as in its hello, is tried again. The drivers keep
+retrying in both cases.
+
 ### Packages, selection and installation
 
 `p.plugin/v2` keeps v1's flat directory, digest rule and strict parsing. The
@@ -224,7 +270,8 @@ manifest keeps `schema`, `id`, `version`, `description` and `capability`, plus
 `entry` for an executable capability, which conformance requires to name a
 regular file in the package, or `assets` for a package of files. `api`,
 `placement`, `runtime` and `requests` go. The 8 MiB per-file and 16 MiB
-per-package limits were sized for WASI modules; step 9 resizes them.
+per-package limits were sized for WASI modules; step 9 resizes them. Part 2
+set them to 32 MiB per file and 64 MiB per package.
 
 Host configuration selects each plugin in its role's block, in the driver's
 shape `{path, sha256, config}`:
@@ -251,6 +298,9 @@ one link.
 | `p plugins run-event HOST_JSON EVENT` | Starts the handler that the host configuration's `events` block selects, with its digest and config, after the launch checks; sends one event and prints the result. A private host configuration holding only `state_dir` and `events` is enough to try a package. Replaces `emit` and today's `run-event`, which read an activation file |
 | `p plugins activate`, `plan-assets` | Gone, with the activation file and with core-chosen guest paths |
 
+All of this landed in part 2; `run-event` prints
+`{"status": …, "event_id": …}`.
+
 ### Conformance
 
 - **Static:** `p plugins conformance`, as today, plus the `entry` rule.
@@ -260,16 +310,23 @@ one link.
   deadline; a crash, a restart and the counted drops; malformed or oversized
   replies refused; output kept from clients.
 
+Landed in part 2: the suite, internal/eventhandler/conformance, runs the
+hello and its refusals, the launch checks, in-order delivery, a missed
+deadline, and a crash with its restart and the event refused while the
+handler is down. Malformed or oversized replies, the counted and logged
+drops, and output kept to the daemon's log are unit tests outside the suite,
+in internal/eventhandler, internal/daemon and internal/eventhandler/supervise.
+
 ## Trust
 
 **Selection** is unchanged: only trusted host configuration names a plugin,
 by path and SHA-256, for the daemon and for `p plugins run-event` alike.
 Repositories, requests, sessions and agents never do.
 
-**Launch checks.** Today the WASI runner executes the bytes it hashed
+**Launch checks.** Before part 2 the WASI runner executed the bytes it hashed
 (`selectedModule` in internal/plugin/wasi_sandbox.go). A native start runs a
 file by name, so the file must be one only root or P's account can change.
-Today's checks do not ensure that: `CheckTrustedAncestors`
+P's checks did not ensure that: `CheckTrustedAncestors`
 (internal/control/config.go) starts at the parent of the path it is given, and
 `Conformance` (internal/plugin/package.go) checks no file's owner, mode or
 link count. Before every start, and before hashing, the daemon therefore
@@ -290,6 +347,13 @@ more than a plugin gains. A managed install meets these rules by construction;
 the bundled catalog in the Nix store meets them as root-owned, read-only
 files. The runtime driver and the source driver apply the same launch checks
 to their executables.
+
+Landed in part 2: `plugin.OpenExecutable` (internal/plugin/launch.go) applies
+these rules with the checks in internal/driverwire/launch (check.go), which
+the drivers' executables pass too, and launch starts the entry by the
+descriptor it checked and hashed, so a file put at the path afterwards is
+never started. The agent adapter gets no launch checks, only its digest
+([above](#the-codex-adapter-stays-a-package-of-files)).
 
 **What a plugin gains.** An executable plugin runs as P's account inside the
 daemon's service sandbox. On the NixOS service (nix/module.nix) that means no
@@ -323,6 +387,7 @@ an open improvement for later, kept visible
 
 These replacements say what P enforces. PROJECT.md, PRODUCT.md and the
 glossary change in step 9's commit, together with the code, not before.
+Part 2 (818c627) applied them.
 
 | Where | Today | Proposed |
 |---|---|---|
@@ -340,7 +405,8 @@ glossary change in step 9's commit, together with the code, not before.
 
 Not designed, and not part of step 9. When native plugins land, step 9's
 commit records the gap as a debt entry in [docs/debts](../docs/debts/), listed
-in [DEBT.md](../DEBT.md); the gap exists only from then on.
+in [DEBT.md](../DEBT.md); the gap exists only from then on. Part 2 recorded
+it: [Executable plugins run with P's authority](../docs/debts/state-safety.md#executable-plugins-run-with-ps-authority).
 
 **What it would protect.** P's state (SQLite, the Git repositories, the Git
 server and client keys, staged packages), the Incus user socket, and the
@@ -359,21 +425,27 @@ P's account reaches it through group membership.
 
 ## What users notice
 
+All of this holds since part 2; the changes that came earlier are marked.
+
 - A default installation writes the same events file and installs the Codex
   adapter at the same path.
 - Host configuration: `git.activation_path` and `git.source_plugin_id` go
   (gone in S5), and so does `runtime.host_plugin_id` (gone in part 1, with
-  `runtime.activation_path`); `events` and `runtime.agent_adapter` take a
-  path, a digest and config instead of an activation file and a plugin ID.
+  `runtime.activation_path`). In part 2, `events` takes a path, a digest and
+  config, and `runtime.agent_adapter` a path and a digest, instead of an
+  activation file and a plugin ID.
 - `p plugins defaults` covers two packages (since part 1); `activate`,
   `plan-assets` and `emit` go; `run-event` reads its selection from host
-  configuration.
+  configuration. `p version` reports `plugin_schema` and
+  `event_handler_protocol` instead of `plugin_api_version`.
 - A WASI event handler no longer runs; it must be rebuilt as a native
   executable.
 - Fresh installs only, by the maintainer's decision: an activation file is
   invalid, and nothing migrates.
 
 ## What is removed
+
+All of it is gone since part 2, except what earlier steps removed, as marked.
 
 - The WASI runner, brokers and activation code in internal/plugin, and
   `github.com/tetratelabs/wazero`, which only internal/plugin imports.
@@ -382,8 +454,14 @@ P's account reaches it through group membership.
 - The source-git and tmux-host packages, gone in S5 and part 1; the WASI
   example and fixtures, and the `wasip1` builds.
 - The host fields of `CreationSelection`, gone in part 1.
+- `p plugins activate`, `plan-assets` and `emit`, and `plugin_api_version` in
+  `p version`. The file-log's append code did not go: it moved from
+  internal/plugin/filelog.go to internal/eventfile, which `p-event-file`
+  runs.
 
 ## Departures from agreements
+
+Part 2 changed each of these documents with its code.
 
 - [Plugin contract](../docs/plugin-contract.md): "WASI is the selected
   executable boundary … Merely running a native executable in a separate
@@ -413,14 +491,16 @@ P's account reaches it through group membership.
   agent adapter, all three applied there since part 1. "Repositories,
   requests and plugins never reach it" holds for the driver's socket pair,
   but an executable plugin running as P's account can open the Incus user
-  socket. Whether a session's creation pins
-  the driver's digest is not yet said there.
+  socket; runtime-driver.md now says so. A session's creation
+  does not pin the driver's digest: as landed, `CreationSelection` holds only
+  the agent adapter's ID and digest.
 - [wire-types.md](wire-types.md): the session RPC keeps `v`, as the
-  maintainer decided there.
+  maintainer decided there; wire-types.md records that step 9 kept it, with
+  no hello.
 - [REWORK-PLAN.md](REWORK-PLAN.md): the Plugins row and step 9 expect the
   WASI plugins to become JSON-RPC executables. Here source-git becomes the
   source driver instead, and the one executable plugin is the event handler,
-  which was declarative rather than WASI.
+  which was declarative rather than WASI. The plan now says so.
 - [source-driver.md](source-driver.md): its driver follows the selection,
   pinning and launch checks of [Trust](#trust).
 
@@ -462,3 +542,13 @@ P's account reaches it through group membership.
 - **Boundaries:** go.mod has no wazero, and no `wasip1` build remains.
 - **Documents:** step 9's commit applies the proposed wording and adds the
   confinement debt entry.
+
+Landed in part 2, with one gap: the unit tests show that the launch checks
+accept root-owned read-only files with several links only through the rule
+tables (internal/driverwire/launch, check_test.go), because an unprivileged
+test cannot make such a file. The one test on a real root-owned file checks
+whatever `true` resolves to, with any link count, and is skipped where that
+file is not root-owned and read-only. Scenario 13 carries the new VM checks,
+and also stops the handler past a deadline and sees it replaced and the drop
+logged, and changes the package while the handler runs and sees it stay
+stopped. Scenario 48 checks that `p version` lists no wazero module.

@@ -432,14 +432,18 @@ daemon stopped. `p help` lists them under their own heading:
 Host commands (run on the P host as the instance owner):
   p daemon HOST_JSON
   p plugins install | update | remove | defaults | conformance | list |
-            activate | plan-assets | emit | run-event …
+            run-event …
   p version
 ```
 
 Their arguments and JSON output stay; the NixOS module calls `p daemon` and
 `p plugins defaults` (nix/module.nix). Steps 8 and 9 own any change to them,
 and step 2 changes `p version` to report the protocol string instead of
-`control_api_version`. `p attach-helper` stays unlisted: P runs it itself.
+`control_api_version`. Step 9's plugin part 2 removed `p plugins activate`,
+`plan-assets` and `emit`, made `run-event` read its selection from host
+configuration, and replaced `plugin_api_version` in `p version` with
+`plugin_schema` and `event_handler_protocol`. `p attach-helper` stays
+unlisted: P runs it itself.
 `p git-hook` went in step 9's S7, when the source driver's pre-receive hook
 became `p-source-git git-hook`. Every command, host commands included,
 exits 2 on a usage error.

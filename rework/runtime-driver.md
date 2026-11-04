@@ -89,7 +89,10 @@ internal/attachment (helper) ─► daemon ─► Driver.OpenTerminal
 | Freezing, loss inspection, `workspace.inspect`, helper containers | Pause, export, helper, Git analysis | **Go** before the driver: `workspace.inspect` in step 0d, the rest in 0e | **Go** (workspace_loss_*.go, workspace_snapshot.go, workspace_sftp_*.go, workspace_git.go, workspace_helper.go) |
 
 The driver is trusted code: it holds container authority. Only trusted host
-configuration selects it; repositories, requests and plugins never reach it.
+configuration selects it, and repositories, requests and plugins never reach
+it through P. An executable plugin, which since step 9's plugin part 2 runs
+as P's account with no sandbox, could still open the Incus user socket
+itself ([plugins.md](plugins.md#trust)).
 The Incus driver ships as the executable `p-runtime-incus`
 (cmd/p-runtime-incus), built from internal/runtimedriver/incus. Its Nix steps
 become a Go package that another driver can reuse. Rename's Git edits
@@ -621,8 +624,9 @@ planned, its row says so.
   attach program become inputs of the Incus driver's session host. The
   plugin rework settled whether hosts stay selectable: in its part 1
   (6e43794) the units and attach program became the Incus driver's own files
-  and no host is selected. The rule that "merely running a native executable
-  in a separate process does not meet this contract" is left to its part 2.
+  and no host is selected. Its part 2 (818c627) reversed the rule that
+  "merely running a native executable in a separate process does not meet
+  this contract": an executable plugin is now trusted code.
 - [Runtime isolation](../docs/runtime-isolation.md): Incus becomes the Incus
   driver, and the properties above get their own section. Network `none`
   means nothing reachable rather than "no general NIC". The systemd host

@@ -272,7 +272,9 @@ connection per call; on a local socket the hello costs one more line.
 
 **The private session RPC keeps `v` for now,** decided by the maintainer on
 2026-11-02; whether it starts with a hello is decided with the plugin
-contract in step 9. It is the agent-facing socket of
+contract in step 9. Step 9 kept `v` and added no hello
+([plugins.md](plugins.md#the-codex-adapter-stays-a-package-of-files)). It is
+the agent-facing socket of
 [communication boundaries](../docs/communication-boundaries.md#session-rpc-audience),
 part of the plugin contract, and its main message, `status.report`, is a
 notification that receives no reply and so cannot take part in a hello. Its

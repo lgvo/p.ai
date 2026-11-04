@@ -204,8 +204,9 @@ While a start or stop operation is unfinished, `session.inspect` and
 runtime shows. `stopping` is a new condition value, decided by the
 maintainer on 2026-11-02; `session.condition_changed` events and the
 file-log handler's allowed values (internal/plugin/filelog.go) gain it.
-Without it, a client that sees the runtime stopped could act while the stop
-operation is unfinished.
+Since step 9's plugin part 2, core's event validation holds those values
+(internal/eventhandler/event.go). Without `stopping`, a client that sees the
+runtime stopped could act while the stop operation is unfinished.
 
 **Only the newest finished start or stop is kept** (maintainer, 2026-11-02).
 Recording a new start or stop deletes the session's older finished one, so
