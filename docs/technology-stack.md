@@ -8,17 +8,17 @@ environment, runtime, lifecycle, observability, and gateway behavior.
 **Convention:** **Decided** is settled for MVP. **Direction** is intentionally
 changeable. **Open** still needs a decision.
 
-The [public plugin package and activation contract](plugin-contract.md) now
-governs linkage. The interfaces and operating-system contracts below supply
-capability behavior; public method schemas for each remaining implementation
-must be fixed before that capability is linked. A bounded WASI event-handler
-runner and typed session asset plans are now available.
+The [public plugin contract](plugin-contract.md) governs linkage: packages,
+their selection by path and digest in trusted host configuration, and the
+event-handler protocol. The interfaces and operating-system contracts below
+supply capability behavior; public method schemas for each remaining
+implementation must be fixed before that capability is linked.
 
 ## Stack at a glance
 
 | Component | MVP choice | Boundary |
 |---|---|---|
-| Language | Go, latest pinned stable toolchain | one daemon/client binary, `p`, and the two driver executables, `p-runtime-incus` and `p-source-git` |
+| Language | Go, latest pinned stable toolchain | one daemon/client binary, `p`, the two driver executables, `p-runtime-incus` and `p-source-git`, and the bundled event handler, `p-event-file` |
 | State | SQLite through `database/sql` and `modernc.org/sqlite` | P identity, policy snapshots, operations, and indexes only |
 | API | NDJSON-RPC 2.0 over Unix streams | direct local Unix for MVP; SSH-to-Unix later |
 | TUI | Bubble Tea v2 and Lip Gloss v2 | Live API client; built-in subsequence filtering |
@@ -30,7 +30,7 @@ runner and typed session asset plans are now available.
 | Session observability | session/policy condition, confirmed attachments, latest unattended condition | reconciled authorities plus small live/persisted state |
 | Agent | Codex running as an ordinary session command | bundled status adapter; authentication remains in the session's private home |
 | Model gateway | post-MVP independently configured Bifrost | retained design; not an MVP dependency |
-| Events | typed handlers; MVP structured file-log handler | receives reduced P events after state changes |
+| Events | one executable event handler, by default the bundled file-log | receives reduced P events after state changes, over the drivers' protocol |
 | Testing | stdlib `testing` plus `go-cmp`; real Git, Incus, Nix, and tmux integration tests | fake seams for unit tests, real authorities for conformance |
 
 MVP installation is supported only on NixOS with local Incus system
@@ -189,13 +189,14 @@ interfaces are design inputs, not automatically the approved public surface.
 
 ### Public plugin contract
 
-[Plugin contract](plugin-contract.md) owns packaging, discovery,
-compatibility, execution containment, activation, and grants. Its public
-package and activation schemas are implemented for the declarative file-log
-handler, the WASI event-handler method, and fixed session asset plans. Other
-WASI capability methods and live session asset installation remain pending. Current Go
-interfaces remain behavioral design inputs; they are not an alternate linkage
-path for bundled implementations.
+[Plugin contract](plugin-contract.md) owns packaging, discovery, selection,
+the launch checks and the event-handler protocol. Two capabilities are
+implemented: `event-handler`, a native executable the daemon starts and talks
+to over the drivers' JSON-RPC protocol, and `agent-adapter`, a package of files
+the runtime driver installs in sessions. An executable plugin is trusted code
+with P's authority: trusted selection, the package digest and the launch checks
+contain it, and no sandbox does. Current Go interfaces remain behavioral design
+inputs; they are not an alternate linkage path for bundled implementations.
 
 ### Systemd interactive host
 
@@ -277,23 +278,23 @@ session-local Codex authentication.
 
 ### Event handlers
 
-Core dispatches a reduced `p.event/v1` value through the selected plugin with
-`plugin.DispatchEvent`. The bundled `org.p.filelog` package implements the
-declarative `event.file.append` operation; a selected WASI event-handler package
-uses the same dispatcher and broker grant. Handlers receive versioned, bounded,
-redacted P events only after authoritative state changes. Handler failure is
-diagnostic and cannot roll back state. The file-log operation appends
-newline-delimited JSON to a trusted-host-configured path with restrictive
-permissions and ordinary bounded rotation. P does not persist an event outbox,
-retry/acknowledgement state, or a second authoritative event history. Future
-logging, notification, webhook, or metrics handlers can extend this plugin
-seam with their own validated capability methods.
+Core reduces and validates each `p.event/v1` value and delivers it, from a
+bounded in-memory queue, to the one event handler trusted host configuration
+selects: a native executable the daemon starts after the launch checks and
+supervises (internal/eventhandler/supervise), over the drivers' JSON-RPC
+protocol, built on internal/driverwire. Handlers receive versioned, bounded,
+redacted P events only after authoritative state changes, one at a time with a
+2-second deadline. A handler that exits or misses a deadline is restarted, and
+the events that arrive meanwhile are dropped and counted, and the drop is logged. Handler failure is
+diagnostic and cannot roll back state. P does not persist an event outbox,
+retry/acknowledgement state, or a second authoritative event history. Logging,
+notification, webhook, or metrics handlers are executable plugins of the same
+capability, which may keep their own connections.
 
-The file-log handler is a bundled host-side declarative plugin through the
-[public package and activation contract](plugin-contract.md). Its broker
-operation is the first working capability. The daemon selects the handler from
-trusted host configuration and delivers reduced events from a bounded in-memory
-queue after state changes.
+The bundled handler is the file-log package, whose entry `p-event-file` appends
+newline-delimited JSON to a trusted-host-configured path with restrictive
+permissions and ordinary bounded rotation
+([plugin contract](plugin-contract.md#the-bundled-file-log)).
 
 ### Future isolated integrations
 
@@ -443,20 +444,20 @@ host/private-network access.
 P is licensed under **Apache-2.0**.
 Compiled dependencies must use permissive licenses such as MIT, Apache-2.0,
 BSD, or ISC. Nix package builds run pinned `go-licenses` checks over the
-transitive native CLI/runtime, runtime driver and bundled WASI target graphs,
+transitive native CLI/runtime, drivers and bundled event handler target graphs,
 using offline vendored sources where dependencies are required. The allowed
 identifiers are `Apache-2.0`, `MIT`, `BSD-2-Clause`, `BSD-3-Clause`, and
-`ISC`; scanner warnings remain visible. Host CLI, runtime driver and runtime
-kit use `CGO_ENABLED=0` so their ELF binaries do not introduce a dynamically
-linked libc boundary. Installed native packages include dependency notices
+`ISC`; scanner warnings remain visible. Host CLI, drivers, event handler and
+runtime kit use `CGO_ENABLED=0` so their ELF binaries do not introduce a
+dynamically linked libc boundary. Installed native packages include dependency notices
 under `share/p/licenses/modules` and Go
 standard-library notices, including its vendored dependencies and patent grant,
 from the pinned compiler source under `share/p/licenses/go`. The CLI also
 retains the vendor tree's license, notice, author and patent files, with original
 relative paths, under `share/p/licenses/vendor`; this includes supplementary
-and nested attributions not automatically saved by the scanner. Bundled WASI
+and nested attributions not automatically saved by the scanner. Bundled
 packages have corresponding notices under `share/p/licenses/plugins`; their
-flat activation package roots stay unchanged. All bundled packages retain P's
+flat package roots stay unchanged. All bundled packages retain P's
 license in that separate notice tree. GPL/LGPL tools
 such as Git and Nix remain separate processes, not linked dependencies.
 
@@ -471,7 +472,6 @@ Planned direct dependencies:
 | `charm.land/ssh` v0.4.3, `golang.org/x/crypto` v0.57.0 | BSD-3 | SSH protocol implementation |
 | `sahilm/fuzzy` | MIT | filtering |
 | `modernc.org/sqlite` | BSD-3 | CGo-free SQLite driver |
-| `tetratelabs/wazero` | Apache-2.0 | bounded WASI plugin runner |
 | `google/go-cmp` | BSD-3 | test diffs |
 | `google/go-licenses` | Apache-2.0 | CI license gate |
 
@@ -505,17 +505,12 @@ this adds no host filesystem, Incus, credential, or cross-session authority.
 Codex itself is pinned to `0.151.0`; fixture checks do not satisfy the pending
 authenticated acceptance gate.
 
-**WASI runner decision (step 3a):** `github.com/tetratelabs/wazero v1.12.0`
-is pinned in `go.mod`; its pinned module contains an Apache-2.0 `LICENSE`.
-Wazero supplies an in-process WebAssembly interpreter with an explicit memory
-limit, context cancellation, WASI Preview 1 imports, and typed host functions.
-Alternatives were a native plugin process with OS sandboxing or a locally
-written WebAssembly interpreter. A native process would require a separate
-syscall and namespace policy to remove ambient filesystem and network
-authority; writing an interpreter would add a larger unreviewed execution
-surface. Wazero receives no host filesystem, network, environment, or command
-imports. The only new authority is the explicitly granted, operation-scoped
-broker call; the interpreter does not own P identity or policy.
+**Native plugins (step 9 of the interface rework, decided 2026-11-02):** the
+WASI runner and `github.com/tetratelabs/wazero` are gone. A WASI handler could
+only append or skip, and with no sockets could not notify anything, so the
+event handler became a native executable speaking the drivers' protocol. An
+executable plugin is trusted code with P's authority; confining it at the
+operating-system level is a later improvement, recorded as debt.
 
 ## Deliberate rigidities
 

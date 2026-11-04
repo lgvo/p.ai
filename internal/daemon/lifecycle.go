@@ -28,7 +28,7 @@ type lifecycle struct {
 	git                    *gitCapability
 	driver                 runtimedriver.Driver
 	supervisor             *supervise.Supervisor // runs the driver executable; Close stops it
-	agentPlan              *plugin.AssetPlan
+	agentAdapter           *plugin.AgentAdapter  // the agent adapter host configuration selects, if any
 	endpoints              *endpointManager
 	instanceID             string
 	ctx                    context.Context
@@ -78,33 +78,13 @@ var (
 // newLifecycle starts the runtime driver and supervises it until Close; a
 // first start that fails refuses the daemon's start.
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (_ *lifecycle, err error) {
-	var agentPlan *plugin.AssetPlan
-	if cfg.AgentAdapter != nil {
-		if err := privateTrustedFile(cfg.AgentAdapter.ActivationPath); err != nil {
-			return nil, fmt.Errorf("agent adapter activation: %w", err)
-		}
-		selections, e := plugin.LoadActivation(cfg.AgentAdapter.ActivationPath)
+	var agentAdapter *plugin.AgentAdapter
+	if a := cfg.AgentAdapter; a != nil {
+		adapter, e := plugin.ReadAgentAdapter(a.Path, a.SHA256)
 		if e != nil {
 			return nil, e
 		}
-		for i := range selections {
-			v := &selections[i]
-			if v.Package.Manifest.ID != cfg.AgentAdapter.PluginID {
-				continue
-			}
-			if v.Package.Manifest.Capability != "agent-adapter" || v.Package.Manifest.Runtime.Kind != "assets" || len(v.Grants) != 1 || v.Grants[0] != "agent.status.report" {
-				return nil, errors.New("selected agent adapter has an unsafe grant or kind")
-			}
-			plan, e := plugin.PlanAssets(*v)
-			if e != nil {
-				return nil, e
-			}
-			agentPlan = &plan
-			break
-		}
-		if agentPlan == nil {
-			return nil, errors.New("selected agent adapter unavailable")
-		}
+		agentAdapter = &adapter
 	}
 	id, err := store.InstanceID(ctx)
 	if err != nil {
@@ -126,7 +106,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, supervisor: driver, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, supervisor: driver, agentAdapter: agentAdapter, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -432,10 +412,10 @@ func (l *lifecycle) dispatchLocked() {
 
 // selection is the agent adapter a creation pins, if one is selected.
 func (l *lifecycle) selection() control.CreationSelection {
-	if l.agentPlan == nil {
+	if l.agentAdapter == nil {
 		return control.CreationSelection{}
 	}
-	return control.CreationSelection{AgentID: l.agentPlan.PackageID, AgentSHA256: l.agentPlan.PackageSHA256}
+	return control.CreationSelection{AgentID: l.agentAdapter.ID, AgentSHA256: l.agentAdapter.SHA256}
 }
 
 func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
@@ -1355,11 +1335,11 @@ func (l *lifecycle) runtimeSpec(uuid, project, image string, grants []runtimedri
 // sessionAssets are the files of the selected agent adapter package, each
 // named by its role; none without one.
 func (l *lifecycle) sessionAssets() []runtimedriver.Asset {
-	if l.agentPlan == nil {
+	if l.agentAdapter == nil {
 		return nil
 	}
-	assets := make([]runtimedriver.Asset, 0, len(l.agentPlan.Files))
-	for _, f := range l.agentPlan.Files {
+	assets := make([]runtimedriver.Asset, 0, len(l.agentAdapter.Files))
+	for _, f := range l.agentAdapter.Files {
 		assets = append(assets, runtimedriver.Asset{Role: f.Role, Mode: f.Mode, Data: f.Data, SHA256: f.SHA256})
 	}
 	return assets

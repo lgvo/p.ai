@@ -109,36 +109,17 @@ let
     fi
     exec ${pkgs.incus}/bin/incus "$@"
   '';
-  wasiFilter =
-    pkgs.runCommand "p-wasi-filter-log-fixture"
-      {
-        nativeBuildInputs = [ pkgs.go ];
-      }
-      ''
-        export GOCACHE="$TMPDIR/go-cache"
-        export GOMODCACHE="$TMPDIR/go-modules"
-        export GOPROXY=off GOTOOLCHAIN=local
-        mkdir -p "$out"
-        cd ${pPackage.src}
-        GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build \
-          -o "$out/filter.wasm" ./plugins/examples/filter-log
-        cp plugins/examples/filter-log/plugin.json "$out/plugin.json"
-      '';
-  wasiHostile =
-    pkgs.runCommand "p-wasi-hostile-fixture"
-      {
-        nativeBuildInputs = [ pkgs.go ];
-      }
-      ''
-        export GOCACHE="$TMPDIR/go-cache"
-        export GOMODCACHE="$TMPDIR/go-modules"
-        export GOPROXY=off GOTOOLCHAIN=local
-        mkdir -p "$out"
-        cd ${pPackage.src}
-        GOOS=wasip1 GOARCH=wasm CGO_ENABLED=0 go build \
-          -o "$out/filter.wasm" ./internal/plugin/testdata/wasi-hostile
-        cp plugins/examples/filter-log/plugin.json "$out/plugin.json"
-      '';
+  # The example event handler, built apart from P as a package of its own:
+  # its plugin.json beside its entry.
+  eventFilterBuild = pPackage.overrideAttrs {
+    subPackages = [ "plugins/examples/filter-log" ];
+    doCheck = false;
+  };
+  eventFilter = pkgs.runCommand "p-event-filter-fixture" { } ''
+    mkdir -p "$out"
+    cp ${pPackage.src}/plugins/examples/filter-log/plugin.json "$out/plugin.json"
+    cp ${eventFilterBuild}/bin/filter-log "$out/filter-log"
+  '';
   image = nixpkgs.lib.nixosSystem {
     inherit system;
     modules = [ ./vm/image.nix ];
@@ -183,8 +164,7 @@ let
     ];
     text = ''
       export P_TEST_SOURCE=${pPackage.src}
-      export P_TEST_WASI_FILTER=${wasiFilter}
-      export P_TEST_WASI_HOSTILE=${wasiHostile}
+      export P_TEST_EVENT_FILTER=${eventFilter}
       export P_TEST_RUNTIME_IMAGE_FILE=${runtimeIdentity}
       export P_TEST_GATED_RUNTIME_DRIVER=${gatedRuntimeDriver}/bin/p-runtime-incus
       export P_TEST_GATED_RUNTIME_FIXTURE=${gatedRuntimeFixture}/bin/runtime-fixture
@@ -261,8 +241,7 @@ in
     gatedRuntimeDriver
     gatedRuntimeFixture
     builderFixture
-    wasiFilter
-    wasiHostile
+    eventFilter
     vm
     runner
     ;

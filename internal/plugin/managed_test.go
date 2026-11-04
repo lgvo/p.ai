@@ -3,7 +3,6 @@ package plugin
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -43,7 +42,7 @@ func managedFixture(t *testing.T) (string, Package, InstallResult) {
 }
 func TestManagedInstallExactBytesApprovedUpdateAndNoActivation(t *testing.T) {
 	state, source, result := managedFixture(t)
-	if !result.ActivationRequired || result.Selection.Path != result.Package.Path || result.Selection.SHA256 != source.SHA256 || len(result.Selection.Config) != 0 {
+	if !result.SelectionRequired || result.Selection.Path != result.Package.Path || result.Selection.SHA256 != source.SHA256 || len(result.Selection.Config) != 0 {
 		t.Fatalf("incorrect selection: %+v", result)
 	}
 	root := managedRoot(state)
@@ -90,7 +89,47 @@ func TestManagedInstallExactBytesApprovedUpdateAndNoActivation(t *testing.T) {
 		if e != nil || i.Mode().Perm() != 0400 {
 			t.Fatal("package file writable", e)
 		}
+		i, e = os.Lstat(filepath.Join(pkg.Path, "handler"))
+		if e != nil || i.Mode().Perm() != 0500 {
+			t.Fatalf("the staged entry has mode %v (%v), want 0500", i.Mode().Perm(), e)
+		}
 	}
+}
+
+// Installing a package already staged succeeds only while its directory and
+// files keep the modes staging gave them.
+func TestReinstallRefusesAStagedEntryWithoutItsExecuteBit(t *testing.T) {
+	state, source, result := managedFixture(t)
+	entry := filepath.Join(result.Package.Path, "handler")
+	if e := os.Chmod(entry, 0400); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := StagePackage(context.Background(), state, "one", source.Path, source.SHA256, ""); e == nil || !strings.Contains(e.Error(), "mode") {
+		t.Fatalf("reinstalling over an entry of mode 0400 = %v, want a refusal", e)
+	}
+	if e := os.Chmod(entry, 0500); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := StagePackage(context.Background(), state, "one", source.Path, source.SHA256, ""); e != nil {
+		t.Fatalf("reinstalling the staged package: %v", e)
+	}
+	if e := os.Chmod(result.Package.Path, 0700); e != nil {
+		t.Fatal(e)
+	}
+	if _, e := StagePackage(context.Background(), state, "one", source.Path, source.SHA256, ""); e == nil || !strings.Contains(e.Error(), "mode") {
+		t.Fatalf("reinstalling over a package directory of mode 0700 = %v, want a refusal", e)
+	}
+}
+
+// A staged package passes the launch checks as it is: P's account owns
+// every file, singly linked and read-only, and its entry may be started.
+func TestAStagedPackagePassesTheLaunchChecks(t *testing.T) {
+	_, _, result := managedFixture(t)
+	_, entry, e := OpenExecutable(result.Package.Path, result.Package.SHA256, uint32(os.Geteuid()))
+	if e != nil {
+		t.Fatalf("the launch checks refused a staged package: %v", e)
+	}
+	entry.Close()
 }
 func TestManagedRemovalLeasesDependencyFailureAndDurableDisable(t *testing.T) {
 	state, _, result := managedFixture(t)
@@ -111,8 +150,6 @@ func TestManagedRemovalLeasesDependencyFailureAndDurableDisable(t *testing.T) {
 	if e = disabled(managedRoot(state), digest); e != nil {
 		t.Fatal("dependency refusal disabled package", e)
 	}
-	log := filepath.Join(state, "events.ndjson")
-	active := Active{Package: result.Package, Grants: result.Selection.Grants, Config: json.RawMessage(`{"path":"` + log + `","max_bytes":4096}`)}
 	if e = RemoveStaged(state, "one", digest, func() error { return nil }); e != nil {
 		t.Fatal(e)
 	}
@@ -122,11 +159,8 @@ func TestManagedRemovalLeasesDependencyFailureAndDurableDisable(t *testing.T) {
 	if _, e = Conformance(path); e == nil {
 		t.Fatal("disabled snapshot accepted")
 	}
-	if _, e = DispatchEvent(context.Background(), []Active{active}, Event{Schema: "p.event/v1", ID: "one", Kind: "operation.progress", OccurredAt: "2026-09-26T00:00:00Z", Instance: "one", Fields: map[string]string{"phase": "running"}}); e == nil {
-		t.Fatal("cached selection invoked after disable")
-	}
-	if _, e = os.Lstat(log); !errors.Is(e, os.ErrNotExist) {
-		t.Fatal("disabled cached handler wrote log")
+	if _, e = LeasePackage(path); e == nil {
+		t.Fatal("a removed package was leased for a run")
 	}
 	if e = RemoveStaged(state, "one", digest, func() error { return nil }); e != nil {
 		t.Fatal("repeat removal failed", e)

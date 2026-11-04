@@ -38,33 +38,7 @@ let
     '';
   };
   cfg = config.services.p;
-  preparePlugins = pkgs.writeShellScript "p-demo-prepare-plugins" ''
-    set -euo pipefail
-    umask 077
-    state=/var/lib/p-demo
-    catalog="$state/bundled/${builtins.baseNameOf (toString cfg.package.bundledPlugins)}"
-    mkdir -p "$state/bundled"
-    if ! test -d "$catalog"; then
-      pending=$(mktemp -d "$state/bundled/.pending.XXXXXXXX")
-      trap 'rm -rf -- "$pending"' EXIT
-      cp -R ${cfg.package}/share/p/plugins/. "$pending/"
-      mv -T -- "$pending" "$catalog"
-      trap - EXIT
-    fi
-    pending=$(mktemp "$state/activation.XXXXXXXX")
-    trap 'rm -f -- "$pending"' EXIT
-    ${cfg.package}/bin/p plugins defaults "$state/events.ndjson" "$catalog" > "$pending"
-    # Keep user-managed activation intact. Only our last untouched default
-    # selection follows the current checkout's bundled packages.
-    if ! test -e "$state/activation.json" && ! test -L "$state/activation.json" \
-       || ${pkgs.diffutils}/bin/cmp -s "$state/activation.json" "$state/bundled-activation.json"; then
-      cp "$pending" "$state/bundled-activation.json"
-      mv -T -- "$pending" "$state/activation.json"
-    else
-      mv -T -- "$pending" "$state/bundled-activation.json"
-    fi
-  '';
-  publicHost = pkgs.writeText "p-demo-public-host.json" (builtins.toJSON (cfg.settings // {
+  publicSettings = pkgs.writeText "p-demo-public-settings.json" (builtins.toJSON (cfg.settings // {
     schema = "p.host/v1";
     state_dir = "/var/lib/p-demo";
     runtime = cfg.settings.runtime // {
@@ -72,6 +46,13 @@ let
       project_policy = cfg.settings.runtime.project_policy // { network = "public-egress"; };
     };
   }));
+  # The public lab runs without the module, so it selects the bundled
+  # file-log and Codex adapter itself, as bundledActivation does.
+  publicHost = pkgs.runCommand "p-demo-public-host.json" { nativeBuildInputs = [ pkgs.jq ]; } ''
+    ${cfg.package}/bin/p plugins defaults /var/lib/p-demo/events.ndjson ${cfg.package}/share/p/plugins > defaults.json
+    jq -c --slurpfile d defaults.json '.events = $d[0].events | .runtime.agent_adapter = $d[0].runtime.agent_adapter' \
+      ${publicSettings} > "$out"
+  '';
 in
 {
   environment.systemPackages = [ browser api shutdown ] ++ lib.optional (demoNotes && demoOriginFixture != null) demoOriginFixture;
@@ -87,12 +68,10 @@ in
   # state, which is already available to this unit. Create the empty directory
   # before the bind so a fresh lab needs no restart after fixture setup.
   systemd.tmpfiles.rules = lib.optional demoNotes "d /home/pdev/.ssh 0700 pdev users -";
-  services.p.bundledActivation = lib.mkForce false;
   # The public mode follows the owner-run daemon contract. Its two read-only
   # root proofs require sudo; the hardened services.p unit forbids privilege
   # transitions and is used unchanged in the default offline mode.
   systemd.services.p = lib.mkMerge [
-    { serviceConfig.ExecStartPre = lib.mkBefore [ preparePlugins ]; }
     (lib.mkIf demoNotes {
       after = [ "systemd-tmpfiles-setup.service" ];
       serviceConfig = {

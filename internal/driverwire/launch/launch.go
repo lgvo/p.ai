@@ -9,6 +9,7 @@ package launch
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net"
@@ -60,6 +61,15 @@ type Config[C Conn] struct {
 	// Backoff is how long to wait before each restart; zero is the
 	// default.
 	Backoff Backoff
+	// Open, when set, applies the launch checks for account, the account P
+	// runs as, and returns the open file to start, which it checked and
+	// hashed, named by its path; Path then only names the driver in
+	// messages. When nil, the launch checks are applied to the executable
+	// at Path against SHA256.
+	Open func(account uint32) (*os.File, error)
+	// StopAfterFailedCheck leaves the driver stopped once a restart fails
+	// its launch checks, until Close; otherwise a restart is tried again.
+	StopAfterFailedCheck bool
 }
 
 // Backoff is how long the supervisor waits before each restart: Min after a
@@ -142,7 +152,11 @@ type process[C Conn] struct {
 // launch applies the launch checks, starts the file checked and applies
 // Accept.
 func (s *Supervisor[C]) launch(ctx context.Context) (*process[C], error) {
-	exe, err := checkExecutable(s.cfg.Path, s.cfg.SHA256, s.account)
+	open := s.cfg.Open
+	if open == nil {
+		open = func(account uint32) (*os.File, error) { return checkExecutable(s.cfg.Path, s.cfg.SHA256, account) }
+	}
+	exe, err := open(s.account)
 	if err != nil {
 		// The refusal names the driver: "the runtime driver failed its
 		// launch checks: ...".
@@ -167,7 +181,7 @@ func (s *Supervisor[C]) launch(ctx context.Context) (*process[C], error) {
 // exe, so a file put at the path after the check is never started. The
 // child gets the connection on driverwire.ConnFD, exe on
 // driverwire.ExecutableFD, /dev/null as input, the daemon's standard error
-// for its output, the path as its only argument and cfg.Env as its whole
+// for its output, exe's path as its only argument and cfg.Env as its whole
 // environment, in a process group of its own, which it leads. It then
 // agrees the hello.
 func startChecked[C Conn](ctx context.Context, cfg Config[C], exe *os.File) (*process[C], error) {
@@ -184,7 +198,7 @@ func startChecked[C Conn](ctx context.Context, cfg Config[C], exe *os.File) (*pr
 	files := make([]*os.File, driverwire.ExecutableFD+1)
 	files[0], files[1], files[2] = devnull, os.Stderr, os.Stderr
 	files[driverwire.ConnFD], files[driverwire.ExecutableFD] = child, exe
-	proc, err := os.StartProcess("/proc/self/fd/"+strconv.Itoa(driverwire.ExecutableFD), []string{cfg.Path}, &os.ProcAttr{
+	proc, err := os.StartProcess("/proc/self/fd/"+strconv.Itoa(driverwire.ExecutableFD), []string{exe.Name()}, &os.ProcAttr{
 		Dir: "/", Files: files,
 		// Never nil, which would give the driver the daemon's environment.
 		Env: append([]string{}, cfg.Env...),
@@ -308,7 +322,8 @@ func (s *Supervisor[C]) supervise(p *process[C]) {
 }
 
 // restart starts the driver again, waiting before each attempt as the
-// backoff says after the last wait, until a start succeeds or Close.
+// backoff says after the last wait, until a start succeeds or Close, or a
+// start fails its launch checks and the driver stays stopped.
 func (s *Supervisor[C]) restart(wait time.Duration) (*process[C], time.Duration) {
 	for {
 		wait = s.cfg.Backoff.next(wait)
@@ -318,6 +333,10 @@ func (s *Supervisor[C]) restart(wait time.Duration) (*process[C], time.Duration)
 		p, err := s.launch(s.ctx)
 		if err == nil {
 			return p, wait
+		}
+		if s.cfg.StopAfterFailedCheck && errors.Is(err, ErrLaunchCheck) {
+			log.Printf("%s %s did not restart and stays stopped: %v", s.cfg.Name, s.cfg.Path, err)
+			return nil, wait
 		}
 		log.Printf("%s %s did not restart: %v", s.cfg.Name, s.cfg.Path, err)
 	}

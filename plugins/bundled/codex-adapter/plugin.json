@@ -1,12 +1,8 @@
 {
-  "schema": "p.plugin/v1",
+  "schema": "p.plugin/v2",
   "id": "org.p.codex-adapter",
-  "version": "0.1.0",
-  "api": "1.0",
-  "capability": "agent-adapter",
-  "placement": "internal-session",
+  "version": "0.2.0",
   "description": "Pinned Codex 0.151.0 event-to-session-status adapter",
-  "runtime": {"kind": "assets"},
-  "requests": ["agent.status.report"],
+  "capability": "agent-adapter",
   "assets": ["p-codex-adapter"]
 }

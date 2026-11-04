@@ -14,7 +14,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/eventhandler"
 	"github.com/lgvo/p.ai/internal/sshserver"
 )
 
@@ -25,7 +25,7 @@ type endpointPair struct {
 type endpointManager struct {
 	prefix, gitAddress string
 	store              *control.Store
-	onUnattended       func(context.Context, plugin.Event) error
+	onUnattended       func(context.Context, eventhandler.Event) error
 	mu                 sync.Mutex
 	opened             map[string]*endpointPair
 	conns              map[net.Conn]struct{}
@@ -417,7 +417,7 @@ func (m *endpointManager) serveSession(ctx context.Context, l net.Listener, uuid
 					return errors.New("event context unavailable")
 				}
 				id := "e-" + instance + "-status-" + strconv.FormatInt(changed.ReceiveSequence, 10)
-				event := plugin.Event{Schema: "p.event/v1", ID: id, Kind: "session.unattended_changed", OccurredAt: changed.ReceivedAt, Instance: instance, Project: session.Project, Session: uuid, Branch: session.Branch, Fields: map[string]string{"unattended_condition": changed.Condition}}
+				event := eventhandler.Event{Schema: "p.event/v1", ID: id, Kind: "session.unattended_changed", OccurredAt: changed.ReceivedAt, Instance: instance, Project: session.Project, Session: uuid, Branch: session.Branch, Fields: map[string]string{"unattended_condition": changed.Condition}}
 				return m.onUnattended(ctx, event)
 			})
 		}()

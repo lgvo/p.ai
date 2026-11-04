@@ -179,10 +179,12 @@ func TestRuntimeAgentAdapterIsOnlyTrustedOptionalSelection(t *testing.T) {
 		valid       bool
 	}{
 		{"absent", "", true},
-		{"selected", `,"agent_adapter":{"activation_path":"` + dir + `/agent.json","plugin_id":"org.p.codex-adapter"}`, true},
-		{"missing id", `,"agent_adapter":{"activation_path":"` + dir + `/agent.json"}`, false},
-		{"relative activation", `,"agent_adapter":{"activation_path":"agent.json","plugin_id":"org.p.codex-adapter"}`, false},
-		{"extra command", `,"agent_adapter":{"activation_path":"` + dir + `/agent.json","plugin_id":"org.p.codex-adapter","command":"/bin/sh"}`, false},
+		{"selected", `,"agent_adapter":{"path":"` + dir + `/codex-adapter","sha256":"` + strings.Repeat("ab", 32) + `"}`, true},
+		{"missing digest", `,"agent_adapter":{"path":"` + dir + `/codex-adapter"}`, false},
+		{"an uppercase digest", `,"agent_adapter":{"path":"` + dir + `/codex-adapter","sha256":"` + strings.Repeat("AB", 32) + `"}`, false},
+		{"relative path", `,"agent_adapter":{"path":"codex-adapter","sha256":"` + strings.Repeat("ab", 32) + `"}`, false},
+		{"config", `,"agent_adapter":{"path":"` + dir + `/codex-adapter","sha256":"` + strings.Repeat("ab", 32) + `","config":{}}`, false},
+		{"an activation file", `,"agent_adapter":{"activation_path":"` + dir + `/agent.json","plugin_id":"org.p.codex-adapter"}`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := os.WriteFile(path, []byte(base+tc.extra+`}}`), 0600); err != nil {
@@ -191,6 +193,41 @@ func TestRuntimeAgentAdapterIsOnlyTrustedOptionalSelection(t *testing.T) {
 			_, err := loadHostConfig(path, check)
 			if (err == nil) != tc.valid {
 				t.Fatalf("trusted adapter config valid=%v err=%v", tc.valid, err)
+			}
+		})
+	}
+}
+
+// Host configuration selects the event handler by its package's path and
+// digest, with the handler's config; an activation file selects nothing.
+func TestEventsSelectAPackageByPathAndDigest(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "host.json")
+	check := privateFixtureChecker(dir)
+	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state"`
+	digest := strings.Repeat("ab", 32)
+	for _, tc := range []struct {
+		name, events string
+		valid        bool
+	}{
+		{"absent", ``, true},
+		{"selected", `,"events":{"path":"` + dir + `/file-log","sha256":"` + digest + `","config":{"path":"` + dir + `/events.ndjson","max_bytes":4096}}`, true},
+		{"missing config", `,"events":{"path":"` + dir + `/file-log","sha256":"` + digest + `"}`, false},
+		{"a config that is no object", `,"events":{"path":"` + dir + `/file-log","sha256":"` + digest + `","config":"x"}`, false},
+		{"missing digest", `,"events":{"path":"` + dir + `/file-log","config":{}}`, false},
+		{"a short digest", `,"events":{"path":"` + dir + `/file-log","sha256":"abc","config":{}}`, false},
+		{"relative path", `,"events":{"path":"file-log","sha256":"` + digest + `","config":{}}`, false},
+		{"unclean path", `,"events":{"path":"` + dir + `/x/../file-log","sha256":"` + digest + `","config":{}}`, false},
+		{"an activation file", `,"events":{"activation_path":"` + dir + `/events.json","plugin_id":"org.p.filelog"}`, false},
+		{"an activation file beside the selection", `,"events":{"path":"` + dir + `/file-log","sha256":"` + digest + `","config":{},"activation_path":"` + dir + `/events.json"}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(base+tc.events+`}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := loadHostConfig(path, check)
+			if (err == nil) != tc.valid {
+				t.Fatalf("events config valid=%v err=%v", tc.valid, err)
 			}
 		})
 	}

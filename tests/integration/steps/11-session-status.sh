@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Real configured daemon, selected WASI packages, two isolated Incus sessions,
+# Real configured daemon and drivers, two isolated Incus sessions,
 # and private RPC sent by a test-only client running inside each guest.
 set -E
 umask 077

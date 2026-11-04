@@ -196,8 +196,8 @@ func TestSessionSpecCarriesOnlyTheSelectedAgentAdapter(t *testing.T) {
 	}
 	data := []byte("#!/bin/sh\nexit 0\n")
 	digest := "306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb"
-	f.l.agentPlan = &plugin.AssetPlan{PackageID: "org.p.codex-adapter", PackageSHA256: strings.Repeat("d", 64),
-		Files: []plugin.AssetFile{{Role: "p-codex-adapter", Destination: "/usr/libexec/p/codex-adapter", Mode: 0555, SHA256: digest, Data: data}}}
+	f.l.agentAdapter = &plugin.AgentAdapter{ID: "org.p.codex-adapter", SHA256: strings.Repeat("d", 64),
+		Files: []plugin.AssetFile{{Role: "p-codex-adapter", Mode: 0555, SHA256: digest, Data: data}}}
 	want := []runtimedriver.Asset{{Role: "p-codex-adapter", Mode: 0555, Data: data, SHA256: digest}}
 	if assets := f.spec().Assets; !reflect.DeepEqual(assets, want) {
 		t.Fatalf("spec carries %+v, want %+v", assets, want)

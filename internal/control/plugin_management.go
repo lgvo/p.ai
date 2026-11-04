@@ -109,15 +109,22 @@ func containsPluginDigest(v any, digest string) bool {
 	return false
 }
 
-// PluginActivationPaths is the closed set of activation authorities supplied by
-// this host configuration, including the optional adapter role.
-func (c HostConfig) PluginActivationPaths() []string {
+// SelectedPackages are the directories of the plugin packages this host
+// configuration selects: the event handler's and the agent adapter's.
+func (c HostConfig) SelectedPackages() []string {
 	paths := []string{}
 	if c.Events != nil {
-		paths = append(paths, c.Events.ActivationPath)
+		paths = append(paths, c.Events.Path)
 	}
 	if c.Runtime != nil && c.Runtime.AgentAdapter != nil {
-		paths = append(paths, c.Runtime.AgentAdapter.ActivationPath)
+		paths = append(paths, c.Runtime.AgentAdapter.Path)
 	}
 	return paths
+}
+
+// SelectsPackage reports whether this host configuration selects the plugin
+// package of digest for a role.
+func (c HostConfig) SelectsPackage(digest string) bool {
+	return c.Events != nil && c.Events.SHA256 == digest ||
+		c.Runtime != nil && c.Runtime.AgentAdapter != nil && c.Runtime.AgentAdapter.SHA256 == digest
 }

@@ -52,7 +52,7 @@ const helpOthers = `Other client commands:
 Host commands (run on the P host as the instance owner):
   p daemon HOST_JSON
   p plugins install | update | remove | defaults | conformance | list |
-            activate | plan-assets | emit | run-event …
+            run-event …
   p version
 `
 

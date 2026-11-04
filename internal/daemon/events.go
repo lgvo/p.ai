@@ -13,17 +13,18 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/eventhandler"
+	handlers "github.com/lgvo/p.ai/internal/eventhandler/supervise"
 )
 
 // eventDelivery owns only best-effort, process-local delivery. The queue is
 // deliberately not a journal: authoritative commits never wait for a handler.
 type eventDelivery struct {
-	active         []plugin.Active
-	dispatch       func(context.Context, plugin.Event) error
+	dispatch       func(context.Context, eventhandler.Event) error
+	stop           func() error // stops the handler, after the worker
 	instance       string
 	prefix         string
-	queue          chan plugin.Event
+	queue          chan eventhandler.Event
 	deadline       time.Duration
 	cancel         context.CancelFunc
 	done           chan struct{}
@@ -31,7 +32,7 @@ type eventDelivery struct {
 	closed         atomic.Bool
 	sequence       atomic.Uint64
 	dropped        atomic.Uint64
-	lastDiagnostic time.Time
+	lastDiagnostic map[string]time.Time // when each diagnostic was last logged
 }
 
 type observedFacts struct{ condition, policy string }
@@ -160,53 +161,35 @@ func (l *lifecycle) attachmentChanged(_ context.Context, id string, count int, c
 	}
 }
 
+// newEventDelivery starts the event handler cfg selects, after its launch
+// checks, and delivers events to it until Close. A handler that does not
+// start refuses the daemon's start.
 func newEventDelivery(parent context.Context, cfg *control.EventsConfig, instance string) (*eventDelivery, error) {
 	if cfg == nil {
 		return nil, nil
 	}
-	if err := privateTrustedFile(cfg.ActivationPath); err != nil {
-		return nil, err
+	prefix, err := newEventID()
+	if err != nil {
+		return nil, errors.New("event identity unavailable")
 	}
-	selected, err := loadEventSelection(*cfg)
+	handler, err := handlers.Start(parent, handlers.Config{Path: cfg.Path, SHA256: cfg.SHA256, Config: cfg.Config})
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithCancel(parent)
-	prefix, err := newEventID()
-	if err != nil {
-		cancel()
-		return nil, errors.New("event identity unavailable")
-	}
-	d := &eventDelivery{active: []plugin.Active{selected}, instance: instance, prefix: prefix, queue: make(chan plugin.Event, 64), deadline: 2 * time.Second, cancel: cancel, done: make(chan struct{})}
-	d.dispatch = func(ctx context.Context, event plugin.Event) error {
-		_, err := plugin.DispatchEvent(ctx, d.active, event)
+	d := &eventDelivery{instance: instance, prefix: prefix, queue: make(chan eventhandler.Event, 64), deadline: 2 * time.Second, cancel: cancel, done: make(chan struct{}), stop: handler.Close}
+	d.dispatch = func(ctx context.Context, event eventhandler.Event) error {
+		_, err := handler.Handle(ctx, event)
 		return err
 	}
 	go d.run(ctx)
 	return d, nil
 }
 
-// Caller must first check the trusted host file and its ancestry. This seam
-// validates the package, digest, capability, and exact grant independently.
-func loadEventSelection(cfg control.EventsConfig) (plugin.Active, error) {
-	active, err := plugin.LoadActivation(cfg.ActivationPath)
-	if err != nil {
-		return plugin.Active{}, err
-	}
-	var selected *plugin.Active
-	for i := range active {
-		if active[i].Package.Manifest.ID == cfg.PluginID {
-			selected = &active[i]
-			break
-		}
-	}
-	if selected == nil || selected.Package.Manifest.Capability != "event-handler" ||
-		len(selected.Grants) != 1 || selected.Grants[0] != "event.file.append" {
-		return plugin.Active{}, errors.New("selected event handler unavailable")
-	}
-	return *selected, nil
-}
-
+// run delivers queued events one at a time, in order, each within the
+// deadline. An event the handler is down for is dropped and counted, and
+// the drop is logged at once; a handler that misses the deadline is
+// restarted by its supervisor, and delivery goes on with the next event.
 func (d *eventDelivery) run(ctx context.Context) {
 	defer close(d.done)
 	for {
@@ -214,9 +197,7 @@ func (d *eventDelivery) run(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case event := <-d.queue:
-			if d.dropped.Swap(0) != 0 {
-				d.diagnostic("event delivery dropped")
-			}
+			d.reportDrops()
 			if ctx.Err() != nil {
 				return
 			}
@@ -225,48 +206,59 @@ func (d *eventDelivery) run(ctx context.Context) {
 				deadline = 2 * time.Second
 			}
 			call, cancel := context.WithTimeout(ctx, deadline)
-			// A host filesystem call cannot be interrupted by Go context. Retire
-			// this worker on a timeout, so at most one call can remain in flight.
-			finished := make(chan error, 1)
-			go func() { finished <- d.dispatch(call, event) }()
-			select {
-			case err := <-finished:
-				cancel()
-				if err != nil {
-					d.diagnostic("event handler delivery failed")
-				}
-			case <-call.Done():
-				cancel()
-				if ctx.Err() == nil {
-					d.diagnostic("event handler deadline exceeded; delivery disabled")
-				}
-				return
+			err := d.dispatch(call, event)
+			missed := errors.Is(call.Err(), context.DeadlineExceeded)
+			cancel()
+			switch {
+			case err == nil || ctx.Err() != nil:
+			case missed:
+				d.diagnostic("event handler deadline exceeded; restarting it")
+			case errors.Is(err, eventhandler.ErrUnavailable):
+				d.dropped.Add(1)
+				d.reportDrops()
+			default:
+				d.diagnostic("event handler delivery failed")
 			}
 		}
 	}
 }
 
-func (d *eventDelivery) diagnostic(message string) {
-	d.diagMu.Lock()
-	defer d.diagMu.Unlock()
-	if time.Since(d.lastDiagnostic) >= time.Minute {
-		log.Print(message)
-		d.lastDiagnostic = time.Now()
+// reportDrops logs that events were dropped, if any were counted since it
+// last did.
+func (d *eventDelivery) reportDrops() {
+	if d.dropped.Swap(0) != 0 {
+		d.diagnostic("event delivery dropped")
 	}
 }
 
+// diagnostic logs message, at most once a minute for each message, with no
+// event or handler detail.
+func (d *eventDelivery) diagnostic(message string) {
+	d.diagMu.Lock()
+	defer d.diagMu.Unlock()
+	if d.lastDiagnostic == nil {
+		d.lastDiagnostic = map[string]time.Time{}
+	}
+	if time.Since(d.lastDiagnostic[message]) >= time.Minute {
+		log.Print(message)
+		d.lastDiagnostic[message] = time.Now()
+	}
+}
+
+// Close stops delivery, then the handler.
 func (d *eventDelivery) Close() {
 	if d == nil {
 		return
 	}
 	d.closed.Store(true)
 	d.cancel()
-	if d.dropped.Swap(0) != 0 {
-		d.diagnostic("event delivery dropped")
-	}
+	d.reportDrops()
 	select {
 	case <-d.done:
 	case <-time.After(250 * time.Millisecond):
+	}
+	if d.stop != nil {
+		d.stop()
 	}
 }
 
@@ -279,7 +271,7 @@ func (d *eventDelivery) emit(kind, project, session, branch, field, value string
 		prefix = "e-test"
 	}
 	id := prefix + "-" + strconv.FormatUint(d.sequence.Add(1), 10)
-	event := plugin.Event{Schema: "p.event/v1", ID: id, Kind: kind,
+	event := eventhandler.Event{Schema: "p.event/v1", ID: id, Kind: kind,
 		OccurredAt: time.Now().UTC().Format(time.RFC3339Nano), Instance: d.instance,
 		Project: project, Session: session, Branch: branch, Fields: map[string]string{field: value}}
 	d.enqueue(event)
@@ -293,7 +285,7 @@ func newEventID() (string, error) {
 	return "e-" + hex.EncodeToString(nonce[:]), nil
 }
 
-func (d *eventDelivery) enqueue(event plugin.Event) {
+func (d *eventDelivery) enqueue(event eventhandler.Event) {
 	if d == nil {
 		return
 	}

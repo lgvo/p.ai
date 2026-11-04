@@ -287,7 +287,7 @@
   the bundled source driver, plugin and the Incus driver), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 15 cases:
+- Added 2026-11-01, updated 2026-11-03, 16 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -339,6 +339,11 @@
     blocks now share as `DriverConfig`, a change to host configuration that meets "Fix
     when"; the move was outside that step. `p-source-git` takes its storage from the hello
     and imports no control code.
+  - 2026-11-03: "step 9 plugin part 2: the event handler as an executable plugin"
+    replaced the `events` and `runtime.agent_adapter` activation-file selections with
+    `path` and `sha256`, a change to host configuration that meets "Fix when"; the move
+    was outside that step. The selections' checks share `validatePinned` with
+    `DriverConfig` in config.go.
 
 ## Operation status updates and kind lists are still written per site
 

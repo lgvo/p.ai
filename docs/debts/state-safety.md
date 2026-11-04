@@ -119,9 +119,62 @@
 - Fix when: a hung driver is seen, or the next change to driver supervision.
 - Left by: the maintainer's orchestrator, which accepted it for step 8's M7 (a shortcut the
   change takes).
-- Added 2026-11-03, updated 2026-11-03, 2 cases:
+- Added 2026-11-03, updated 2026-11-03, 3 cases:
   - 2026-11-03: "the runtime driver as its own executable" (step 8, M7) restarts a driver
     that exits or drops its connection and leaves a hung one undetected.
   - 2026-11-03: "the source driver as its own executable" (step 9, S7) supervises
     `p-source-git` with the same launch code, shared with the runtime driver in
     internal/driverwire, and leaves a hung source driver undetected too.
+  - 2026-11-03: "step 9 plugin part 2: the event handler as an executable plugin" gave
+    launch `Config.Open` and `StopAfterFailedCheck` for the event handler, which is
+    restarted when it misses an event's deadline (internal/eventhandler/supervise
+    `Supervisor.Handle`); a hung driver is still not detected.
+
+## Executable plugins run with P's authority
+
+- Where: internal/eventhandler/supervise supervise.go `Start`; internal/driverwire/launch
+  launch.go `startChecked`; nix/module.nix (the service's sandbox)
+- Problem: An executable plugin, the event handler, runs as P's account inside the
+  daemon's service sandbox with no confinement of its own. It can read and write P's state
+  (SQLite, the Git repositories, the Git server and client keys, staged packages), open the
+  Incus user socket and use the network. The WASI runner it replaced allowed none of this.
+- Evidence: launch starts the entry with no environment and in a process group of its own,
+  but with the daemon's account, groups and namespaces. The NixOS service gives that account
+  write access to P's state directory, membership in the `incus` group and no network
+  restriction.
+- Risk: a selected handler that is malicious or compromised, or a bug in one, can change
+  P's authoritative state or any session's runtime through Incus, or send data off the
+  host. Only trusted selection, the package digest and the launch checks keep an unreviewed
+  package from running.
+- Fix: confine the handler before it runs: a separate account without P's state or the
+  `incus` group, Landlock rules applied by a small launcher, or systemd sandboxing of the
+  process, which rework/plugins.md ("Later improvement") weighs. Confinement brings grants
+  back in a new form: a plugin's config names what it may reach.
+- Fix when: an executable plugin other than the bundled file-log is to be selected, or the
+  next change to how the daemon starts plugins.
+- Left by: the maintainer, who decided on 2026-11-02 that executable plugins are trusted
+  code and kept OS confinement as a later improvement.
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "step 9 plugin part 2: the event handler as an executable plugin" replaced
+    the WASI runner and its broker with a native process the daemon starts.
+
+## A driver's or plugin's output is not bounded
+
+- Where: internal/driverwire/launch launch.go `startChecked`
+- Problem: launch gives every process it starts, the runtime driver, the source driver and
+  the event handler, the daemon's own standard error as its standard output and error, with
+  no bound. rework/plugins.md ("Protocol") requires a plugin's output to be bounded.
+- Evidence: `startChecked` sets the child's descriptors 1 and 2 to `os.Stderr`; nothing
+  reads, limits or rate-limits what the child writes there.
+- Risk: a driver or handler that loops on a message fills the daemon's log (the journal on
+  the NixOS service) and can hide P's own diagnostics.
+- Fix: give the child a pipe that a bounded, rate-limited copier drains into the daemon's
+  log, as the WASI runner bounded a module's output.
+- Fix when: a driver or plugin floods the log, or the next change to how launch starts a
+  process.
+- Left by: the agent, by rule (a shortcut the change takes: step 9 plugin part 2 kept the
+  launch code it shares with the drivers).
+- Added 2026-11-04, 1 case:
+  - 2026-11-04: "step 9 plugin part 2: the event handler as an executable plugin" starts
+    the handler with launch, whose output goes unbounded to the daemon's log; the WASI
+    runner it replaced bounded a module's output to 4 KiB.

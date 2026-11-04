@@ -6,7 +6,6 @@ require (
 	charm.land/ssh v0.4.3
 	charm.land/wish/v2 v2.0.3
 	github.com/gorilla/websocket v1.5.3
-	github.com/tetratelabs/wazero v1.12.0
 	golang.org/x/crypto v0.57.0
 	modernc.org/sqlite v1.39.1
 )

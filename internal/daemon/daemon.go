@@ -3,9 +3,9 @@ package daemon
 import (
 	"context"
 	"errors"
-	"reflect"
 
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/eventhandler"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -15,7 +15,7 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 	if err != nil {
 		return err
 	}
-	releasePackages, leasedPackages, err := leaseConfiguredPackageSnapshot(cfg, instance)
+	releasePackages, err := leaseConfiguredPackages(cfg, instance)
 	if err != nil {
 		return err
 	}
@@ -25,13 +25,6 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 		return err
 	}
 	defer events.Close()
-	if events != nil {
-		for _, selected := range events.active {
-			if !sameLeasedSelection(leasedPackages, selected) {
-				return errors.New("event selection changed while acquiring package leases")
-			}
-		}
-	}
 	if cfg.Git == nil {
 		return control.Serve(parent, store, cfg.StateDir)
 	}
@@ -59,13 +52,10 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 			cancel()
 			life.Close()
 		}()
-		if life.agentPlan != nil && !sameLeasedAsset(leasedPackages, *life.agentPlan) {
-			return errors.New("asset selection changed while acquiring package leases")
-		}
 		life.events = events
 		life.origins, origins.Queue = origins, life.enqueue
 		life.onAttachment = life.attachmentChanged
-		life.endpoints.onUnattended = func(_ context.Context, event plugin.Event) error {
+		life.endpoints.onUnattended = func(_ context.Context, event eventhandler.Event) error {
 			events.enqueue(event)
 			return nil
 		}
@@ -124,49 +114,24 @@ func runPair(parent context.Context, gitServe, rpcServe func(context.Context) er
 	return first
 }
 
-// Cached role and asset selections keep managed packages leased until every
-// runner is stopped; a different instance cannot borrow the bound registry.
+// leaseConfiguredPackages leases the managed packages host configuration
+// selects for the daemon's lifetime, so that none is removed while its
+// handler may run or a creation may read it; a different instance cannot
+// borrow the registry they belong to.
 func leaseConfiguredPackages(cfg control.HostConfig, instance string) (func(), error) {
-	release, _, err := leaseConfiguredPackageSnapshot(cfg, instance)
-	return release, err
-}
-func leaseConfiguredPackageSnapshot(cfg control.HostConfig, instance string) (func(), map[string]plugin.Active, error) {
-	packages := map[string]plugin.Active{}
 	releases := []func(){}
 	release := func() {
 		for i := len(releases) - 1; i >= 0; i-- {
 			releases[i]()
 		}
 	}
-	seen := map[string]bool{}
-	for _, path := range cfg.PluginActivationPaths() {
-		if seen[path] {
-			continue
-		}
-		seen[path] = true
-		active, err := plugin.LoadPrivateActivation(path)
+	for _, path := range cfg.SelectedPackages() {
+		r, err := plugin.LeaseInstancePackage(path, cfg.StateDir, instance)
 		if err != nil {
 			release()
-			return nil, nil, err
+			return nil, err
 		}
-		for _, selected := range active {
-			r, err := plugin.LeaseInstancePackage(selected.Package.Path, cfg.StateDir, instance)
-			if err != nil {
-				release()
-				return nil, nil, err
-			}
-			releases = append(releases, r)
-			packages[selected.Package.Path] = selected
-		}
+		releases = append(releases, r)
 	}
-	return release, packages, nil
-}
-
-func sameLeasedSelection(packages map[string]plugin.Active, selected plugin.Active) bool {
-	expected, ok := packages[selected.Package.Path]
-	return ok && reflect.DeepEqual(expected, selected)
-}
-func sameLeasedAsset(packages map[string]plugin.Active, plan plugin.AssetPlan) bool {
-	selected, ok := packages[plan.PackagePath]
-	return ok && selected.Package.Manifest.ID == plan.PackageID && selected.Package.SHA256 == plan.PackageSHA256
+	return release, nil
 }

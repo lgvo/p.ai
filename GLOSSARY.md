@@ -123,6 +123,8 @@ available across a P isolation or extension boundary.
 
 - **Rules:** A session or plugin cannot grant itself authority. Each grant has
   explicit scope and is enforced by the authority that owns the capability.
+  Executable plugins hold no grants; trusted configuration selects them, and
+  they run with P's authority.
 
 ### Host-side capability
 
@@ -130,8 +132,9 @@ A plugin-provided capability that participates in P lifecycle work outside a
 session without being exposed to that session.
 
 - **Example:** An event handler.
-- **Rules:** It receives only the authority granted for its declared role and
-  does not become a session service merely because its result affects one.
+- **Rules:** An executable plugin that provides it runs as trusted code with
+  P's authority, and P sends it only what its capability defines. It does not
+  become a session service merely because its result affects one.
 
 ### Internal session service
 
@@ -211,14 +214,14 @@ items, what is already gone, and the change's own details.
 An independently authored, installable implementation of one or more stable,
 documented P capability contracts.
 
-- **Boundaries:** A plugin may provide a first- or third-party internal or
-  external session service, host-side capability, integration, or workflow. It
-  is not P core and does not provide a runtime; the
-  [runtime driver](#runtime-driver) does.
+- **Boundaries:** A plugin may provide a host-side capability, an internal or
+  external session service, an integration, or a workflow. It is not P core or
+  a driver.
 - **Rules:** Developers or agents may author, register, and test plugins.
-  Registration does not activate a plugin or grant authority. Trusted
-  developer configuration controls activation, implementation selection, and
-  grants; an activated plugin may operate autonomously only within them.
+  Registration does not activate a plugin. Trusted developer configuration
+  activates an exact package for one capability. A plugin that runs inside a
+  session has the session's grants and no more; an executable plugin runs on
+  the host as trusted code with P's authority.
 
 ### Policy condition
 

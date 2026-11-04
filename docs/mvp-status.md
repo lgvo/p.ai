@@ -13,10 +13,12 @@ Current snapshot of P's design and implementation readiness.
 
 P's CLI-first implementation and live session browser are available. The latest
 serial delivery checkpoint passed all 58 automated validation steps. Package validation, trusted plugin
-activation, bounded WASI event handlers, session asset plans, the file-log
-broker, SQLite state, Git/SSH, the assembled base runtime, and the executable
-Incus plugin have passed independent review, unit tests, and the packaged VM
-suite. Public CLI/RPC creation, captured-source sessions, exact retry, daemon
+selection, the executable event handler and its bundled file-log, the agent
+adapter's files, SQLite state, Git/SSH, the assembled base runtime, and the
+Incus runtime driver have passed independent review, unit tests, and the
+packaged VM suite. Since then the interface rework replaced the WASI event
+handlers, the file-log broker and the activation file with a native event
+handler selected by path and digest in host configuration. Public CLI/RPC creation, captured-source sessions, exact retry, daemon
 restart, and retained Stop/Start now pass against real base-image containers.
 Private status RPC, durable unattended projections, attachment leases, daemon
 events, origin-backed creation, and explicit publication also pass in the VM.
@@ -57,7 +59,7 @@ keys and prototype-only features. Installed
 first-party plugin composition passed selected VM48; CLI managed package
 installation/update/removal passed VM54. Production TUI approval interactions
 remain deferred beyond the
-[package and activation contract](plugin-contract.md).
+[plugin contract](plugin-contract.md).
 
 The validated CLI-first scope retains bounded supported recovery and cleanup
 paths. Arbitrary-failure recovery remains outside this delivery; the subject
@@ -78,11 +80,13 @@ handler, and the Codex adapter. Nix environment preparation is part of the
 native Incus image build. The usable public
 interfaces and this basic composition are sufficient for MVP; a separate
 agent-authored plugin is not a release gate. The [plugin contract](plugin-contract.md)
-now owns packaging, activation, compatibility, and the selected executable
-boundary. Event-handler and runtime executable methods and
-agent-adapter assets are validated; the tmux persistent host is the Incus
-runtime driver's own. Selected VM48 exercised the production
-package's exact bundled plugin catalog and CLI default activation through real
+now owns packaging, selection, the launch checks and the event-handler
+protocol. The event handler is a native executable the daemon starts and
+supervises; executable plugins are trusted code with P's authority, and their
+OS confinement is a later improvement. Agent-adapter assets are validated; the
+tmux persistent host is the Incus runtime driver's own, and Git source is the
+source driver's. Selected VM48 exercises the production
+package's exact bundled plugin catalog and its default selections through real
 session creation, fixture status reporting and Stop/Start with daemon restart.
 Stopped local base-image failed creations now have reviewed confirmed cleanup,
 validated separately in selected VM51; the loss inspection that preceded it,

@@ -69,6 +69,34 @@ func TestExecutableRules(t *testing.T) {
 	}
 }
 
+// A plugin package's other files follow the executable's rules but need no
+// execute bit.
+func TestFileRules(t *testing.T) {
+	file := func(mode, uid uint32, nlink uint64) fileStat {
+		return fileStat{mode: syscall.S_IFREG | mode, uid: uid, nlink: nlink}
+	}
+	for _, c := range []struct {
+		name string
+		stat fileStat
+		want string
+	}{
+		{"read-only and owned by the account", file(0o400, account, 1), ""},
+		{"without any execute bit", file(0o644, account, 1), ""},
+		{"owned by root, read-only, with other links", file(0o444, 0, 3), ""},
+		{"owned by another account", file(0o400, account+1, 1), "is owned by another account"},
+		{"group-writable", file(0o620, account, 1), "is group- or world-writable"},
+		{"world-writable", file(0o602, account, 1), "is group- or world-writable"},
+		{"owned by the account, read-only, with another link", file(0o400, account, 2), "has another link while it can be written"},
+		{"owned by root, writable, with another link", file(0o644, 0, 2), "has another link while it can be written"},
+		{"a directory", fileStat{mode: syscall.S_IFDIR | 0o755, uid: account, nlink: 2}, "is not a regular file"},
+		{"a symbolic link", fileStat{mode: syscall.S_IFLNK | 0o777, uid: account, nlink: 1}, "is a symbolic link"},
+	} {
+		if got := fileRefusal(c.stat, account); got != c.want {
+			t.Errorf("a file %s: refusal %q, want %q", c.name, got, c.want)
+		}
+	}
+}
+
 // executable is a trusted executable in a private directory of its own.
 type executable struct {
 	dir, path, digest string

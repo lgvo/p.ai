@@ -40,11 +40,15 @@ projects.
 
 Developers can let agents and plugins work independently while their
 capabilities, publication authority, and potential destructive effects remain
-explicit and contained.
+explicit; agents and the plugins that run inside sessions also remain
+contained.
 
-**Success signal:** Agents and plugins cannot exceed their declared grants,
-failures do not silently widen authority, and destructive actions explain what
-will be lost before proceeding.
+**Success signal:** Agents, and plugins that run inside sessions, cannot exceed
+the session's grants. A plugin runs on the host only when trusted host
+configuration selects its exact, protected package; it is trusted code with
+P's authority, and P sends it only what its capability defines. Failures do
+not silently widen authority, and destructive actions explain what will be
+lost before proceeding.
 
 ### Preserve interoperability and continuity
 
@@ -70,8 +74,9 @@ Developers and agents can add integrations and workflows through stable,
 documented plugin contracts without forking or rebuilding P core.
 
 **Success signal:** A plugin can be authored, tested, discovered, and installed
-independently. Trusted developer configuration controls its activation and
-capabilities, after which it can operate autonomously within those grants.
+independently. Trusted developer configuration controls which exact package is
+activated for which capability, after which it can operate autonomously:
+inside a session within the session's grants, or on the host as trusted code.
 
 ## Non-goals
 
@@ -129,8 +134,9 @@ The canonical terms below are defined in the [glossary](GLOSSARY.md).
 - Agents operate inside governed environments but retain ownership of their
   reasoning and workflows.
 - Developers or agents may author and test plugins. Trusted developer
-  configuration controls plugin activation and grants; an activated plugin may
-  operate autonomously only within them.
+  configuration controls plugin activation by exact package; an activated
+  plugin may operate autonomously, inside a session within its grants or on
+  the host as trusted code with P's authority.
 - Existing systems retain authority for source, execution, process
   supervision, terminal behavior, and optional external services. P composes
   and governs their relationships.

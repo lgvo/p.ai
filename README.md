@@ -483,11 +483,14 @@ mechanisms while P provides explicitly granted, session-scoped access.
 Host-side capabilities participate in lifecycle work without being exposed to
 the session.
 
-The [plugin foundation](docs/plugin-contract.md) defines package manifests,
-content-pinned activation, grants, and the selected execution boundary.
-The initial CLI validates packages, executes bounded WASI event handlers,
-exercises the declarative file-log handler, and produces fixed session asset
-plans. Packaged bundled composition and managed install/update/removal are
+The [plugin contract](docs/plugin-contract.md) defines package manifests,
+selection by path and digest in trusted host configuration, the launch checks
+and the event-handler protocol. An event handler is a native executable the
+daemon starts and supervises, by default the bundled file-log; it is trusted
+code with P's authority. The Codex agent adapter is a package of files the
+runtime driver installs in sessions. The CLI validates packages, prints the
+bundled selections and tries an event handler with `p plugins run-event`.
+Packaged bundled composition and managed install/update/removal are
 validated within the package contract's explicit boundaries. Track current
 changes and VM evidence in the
 [implementation progress record](docs/implementation-progress.md). See
@@ -575,9 +578,11 @@ the confined socket/project and imported image fingerprint. Its
 driver gives no `path`, the module pins the package's `bin/p-runtime-incus` or
 `bin/p-source-git` and that file's SHA-256, computed when the configuration is
 built, and gives `p-source-git` the system's Git and OpenSSH unless its
-`config` names them ([host configuration](docs/control-api.md)). For the bundled
-selection, role activation paths point to `/var/lib/p/activation.json`. The
-service module supports `network: none` policies only. Public egress uses the
+`config` names them ([host configuration](docs/control-api.md)).
+`bundledActivation` selects the package's bundled file-log, writing
+`/var/lib/p/events.ndjson`, and Codex adapter in the generated host
+configuration, by path and digest, unless your settings select their own
+`events` or `runtime.agent_adapter`. The service module supports `network: none` policies only. Public egress uses the
 existing owner-run daemon configuration and its scoped privileged network proofs;
 the module refuses it rather than weakening service hardening. The
 module creates a persistent `p` account; existing confined accounts can use
@@ -598,7 +603,7 @@ Preserving `P_SOCKET` carries the configured socket or your exported override
 through sudo's environment reset.
 
 Host configuration is privately generated from declarative settings at service
-start. Existing trusted activation and state survive restarts. Installation
+start. State survives restarts. Installation
 acceptance is recorded in [implementation progress](docs/implementation-progress.md);
 authenticated Codex execution remains your separate manual gate.
 

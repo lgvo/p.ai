@@ -234,8 +234,10 @@ remains pending. Fixture checks cannot establish real execution or native hook b
 ## Typed P events
 
 After committing a reduced domain transition, P may emit one versioned event
-through its common event-handler seam. The envelope contains only bounded,
-redacted domain metadata:
+to the event handler trusted host configuration selects: an executable plugin
+the daemon starts and sends events to over the
+[event-handler protocol](plugin-contract.md#the-event-handler-protocol). The
+envelope contains only bounded, redacted domain metadata:
 
 ```text
 schema version and event ID
@@ -250,8 +252,8 @@ unattended condition, policy condition, and operation progress. A
 arbitrary RPC line. No unattended-change event is emitted for a semantic report
 received while attached.
 
-The v1 reduced fields accepted by the bundled file-log handler use one field
-per event kind. `session.condition_changed` carries `condition` with one of
+The v1 reduced fields, which core validates before it sends an event, use one
+field per event kind. `session.condition_changed` carries `condition` with one of
 `creating`, `starting`, `ready`, `stopping`, `stopped`, `missing`,
 `unreachable`, `discarding`, or `deleting`. `session.attachment_changed` carries a canonical
 nonnegative decimal `count` capped at 1,000,000. `session.unattended_changed` carries
@@ -276,11 +278,12 @@ outbox, acknowledgement/retry protocol, replay cursor, or authoritative event
 history. A handler must tolerate process restart and duplicate external effects
 according to its own needs.
 
-MVP's built-in handler appends structured events to a configured file. The
-interface, handler choice, and file implementation are owned by
-[technology stack](technology-stack.md#event-handlers). Other logging,
-notification, webhook, or metrics handlers may implement the same seam later;
-notification protocol is not session semantics.
+MVP's bundled handler, the file-log, appends structured events to a
+configured file. The interface, handler choice, and file implementation are
+owned by [technology stack](technology-stack.md#event-handlers). Other logging,
+notification, webhook, or metrics handlers are executable plugins of the same
+capability, which may keep their own connections; notification protocol is not
+session semantics.
 
 ## Presentation contract
 

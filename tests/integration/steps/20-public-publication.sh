@@ -1,5 +1,5 @@
 # shellcheck shell=bash
-# Public publication with real daemon RPC, OpenSSH, selected WASI Git, and
+# Public publication with real daemon RPC, OpenSSH, the source driver, and
 # a real confined session. Test-only retained refs are seeded explicitly below.
 set -E
 umask 077

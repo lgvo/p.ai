@@ -85,7 +85,7 @@ func captureRemovalReceipt(target, digest string) (removalReceipt, error) {
 			f.Close()
 			return r, errors.New("removal file identity unavailable")
 		}
-		data, e := io.ReadAll(io.LimitReader(f, (8<<20)+1))
+		data, e := io.ReadAll(io.LimitReader(f, maxFileBytes+1))
 		after, statErr := f.Stat()
 		f.Close()
 		if e != nil || statErr != nil || !bytes.Equal(data, captured[name]) || removalFileIdentity(info) != removalFileIdentity(after) || info.Size() != after.Size() {
@@ -154,8 +154,8 @@ func validateRemovalSurvivors(target string, r removalReceipt) error {
 		return e
 	}
 	defer dir.Close()
-	entries, e := dir.ReadDir(129)
-	if e != nil && !errors.Is(e, io.EOF) || len(entries) > 128 {
+	entries, e := dir.ReadDir(maxPackageFiles + 1)
+	if e != nil && !errors.Is(e, io.EOF) || len(entries) > maxPackageFiles {
 		return errors.New("removal survivor inventory unavailable")
 	}
 	approved := map[string]removalFile{}
@@ -174,19 +174,19 @@ func validateRemovalSurvivors(target string, r removalReceipt) error {
 	return nil
 }
 func validRemovalReceipt(r removalReceipt, digest string) bool {
-	if r.Schema != removalSchema || r.Digest != digest || r.Parent.Inode == 0 || len(r.Files) > 128 || r.Directory.Inode == 0 && len(r.Files) != 0 {
+	if r.Schema != removalSchema || r.Digest != digest || r.Parent.Inode == 0 || len(r.Files) > maxPackageFiles || r.Directory.Inode == 0 && len(r.Files) != 0 {
 		return false
 	}
 	seen := map[string]bool{}
 	total := int64(0)
 	for _, f := range r.Files {
 		total += f.Size
-		if safeRelative(f.Name) != nil || filepath.Base(f.Name) != f.Name || f.Name == "." || f.Name == ".." || seen[f.Name] || f.Identity.Inode == 0 || f.Size < 0 || f.Size > 8<<20 || f.Mode != 0400 || !validDigest(f.SHA256) {
+		if safeRelative(f.Name) != nil || filepath.Base(f.Name) != f.Name || f.Name == "." || f.Name == ".." || seen[f.Name] || f.Identity.Inode == 0 || f.Size < 0 || f.Size > maxFileBytes || f.Mode != 0400 && f.Mode != 0500 || !validDigest(f.SHA256) {
 			return false
 		}
 		seen[f.Name] = true
 	}
-	return total <= 16<<20 && (r.Directory.Inode == 0 || seen["plugin.json"])
+	return total <= maxPackageBytes && (r.Directory.Inode == 0 || seen["plugin.json"])
 }
 func loadRemovalReceipt(marker, digest string) (removalReceipt, error) {
 	var r removalReceipt

@@ -93,9 +93,16 @@ test "$(systemctl show p.service -p NoNewPrivileges --value)" = yes
 test "$(systemctl show p.service -p ProtectSystem --value)" = strict
 test "$(stat -c '%a:%u' "$state")" = "700:$(id -u)"
 test "$(stat -c '%a:%u:%h' "$state/host.json")" = "600:$(id -u):1"
-test "$(stat -c '%a:%u' "$state/activation.json")" = "600:$(id -u)"
-p plugins activate "$state/activation.json" | jq -e 'length==2' >/dev/null
-activation_sha=$(sha256sum "$state/activation.json" | cut -d ' ' -f1)
+# bundledActivation selects the bundled packages in the generated host
+# configuration, by path and digest; there is no activation file.
+test ! -e "$state/activation.json"
+catalog="$(dirname "$(dirname "$(readlink -f "$(command -v p)")")")/share/p/plugins"
+p plugins list "$catalog" > "$step_dir/catalog.json"
+jq -e --arg catalog "$catalog" --arg log "$state/events.ndjson" --slurpfile listed "$step_dir/catalog.json" '
+  ($listed[0].packages | map({key: .manifest.id, value: .sha256}) | from_entries) as $digest |
+  .events=={path:($catalog+"/file-log"),sha256:$digest["org.p.filelog"],config:{path:$log,max_bytes:4194304}} and
+  .runtime.agent_adapter=={path:($catalog+"/codex-adapter"),sha256:$digest["org.p.codex-adapter"]}' "$state/host.json" >/dev/null
+host_sha=$(sha256sum "$state/host.json" | cut -d ' ' -f1)
 rpc system.hello | jq -e '.result.capabilities|index("runtime")!=null' >/dev/null
 created=$(rpc project.create '{"key":"nixos-service55-create","project":"nixos-service55"}')
 op=$(jq -er '.result.operation.id' <<< "$created")
@@ -115,7 +122,7 @@ wait_health
 wait_ready
 test "$(guest tmux -S /run/p-interactive/tmux.sock display-message -p '#{pid}')" = "$host_pid"
 test "$(sha256sum "$state/session_keys/$uuid" | cut -d ' ' -f1)" = "$key_sha"
-test "$(sha256sum "$state/activation.json" | cut -d ' ' -f1)" = "$activation_sha"
+test "$(sha256sum "$state/host.json" | cut -d ' ' -f1)" = "$host_sha"
 stop_when_idle
 service_control restart
 wait_health

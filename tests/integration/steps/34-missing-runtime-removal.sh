@@ -146,14 +146,8 @@ on_error() {
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
-activate() {
-  local package="$1" target="$2" grant="$3" digest id
-  digest=$(p plugins conformance "$package" | jq -er '.sha256 | select(length==64)')
-  id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
-}
-activate "$P_TEST_SOURCE/plugins/bundled/codex-adapter" "$step_dir/agent.json" agent.status.report
+agent_package="$P_TEST_SOURCE/plugins/bundled/codex-adapter"
+agent_digest=$(p plugins conformance "$agent_package" | jq -er '.sha256 | select(length==64)')
 
 base_image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base_image}" -eq 64
@@ -163,12 +157,11 @@ driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incu
 source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh" |
   jq -c --arg git "$step_dir/bin/git" '.config.git=$git')
 jq -n --arg state "$state" --argjson source_driver "$source_driver" \
-  --arg agent_activation "$step_dir/agent.json" \
-  --arg agent_id "$(jq -er '.plugins[0].id' "$step_dir/agent.json")" \
+  --arg agent_path "$agent_package" --arg agent_digest "$agent_digest" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$base_image" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{listen:"127.0.0.1:0",driver:$source_driver},
-    runtime:{agent_adapter:{activation_path:$agent_activation,plugin_id:$agent_id},
+    runtime:{agent_adapter:{path:$agent_path,sha256:$agent_digest},
       driver:$driver,
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
       base_image_fingerprint:$image,

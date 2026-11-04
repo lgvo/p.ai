@@ -29,10 +29,14 @@ type HostConfig struct {
 	Events   *EventsConfig  `json:"events,omitempty"`
 }
 
-// EventsConfig selects one trusted host event handler.
+// EventsConfig selects the event handler: a package of the event-handler
+// capability, pinned by its directory and package digest, and the handler's
+// own settings, which only the handler reads. The daemon's launch checks
+// examine the package each time it starts the handler.
 type EventsConfig struct {
-	ActivationPath string `json:"activation_path"`
-	PluginID       string `json:"plugin_id"`
+	Path   string          `json:"path"`
+	SHA256 string          `json:"sha256"`
+	Config json.RawMessage `json:"config"`
 }
 
 // RuntimeConfig is trusted instance configuration. Session requests cannot
@@ -61,23 +65,40 @@ type DriverConfig struct {
 
 // validate checks the driver configured at field, such as runtime.driver.
 func (d DriverConfig) validate(field string) error {
-	if !filepath.IsAbs(d.Path) || filepath.Clean(d.Path) != d.Path {
+	if err := validatePinned(field, d.Path, d.SHA256); err != nil {
+		return err
+	}
+	return validateConfigObject(field, d.Config)
+}
+
+// validatePinned checks what host configuration pins at field by its path
+// and SHA-256: an absolute clean path and 64 lowercase hex digits.
+func validatePinned(field, path, sha256 string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return fmt.Errorf("%s.path must be an absolute clean path", field)
 	}
-	if !validFingerprint(d.SHA256) {
+	if !validFingerprint(sha256) {
 		return fmt.Errorf("%s.sha256 must be 64 lowercase hex digits", field)
 	}
-	if config := bytes.TrimSpace(d.Config); len(config) == 0 || config[0] != '{' {
+	return nil
+}
+
+// validateConfigObject checks that the config at field is a JSON object,
+// which only the driver or plugin it configures reads.
+func validateConfigObject(field string, config json.RawMessage) error {
+	if config := bytes.TrimSpace(config); len(config) == 0 || config[0] != '{' {
 		return fmt.Errorf("%s.config must be a JSON object", field)
 	}
 	return nil
 }
 
-// AgentAdapterConfig selects one trusted, optional session asset package.
-// Session requests and repository content never choose this package.
+// AgentAdapterConfig selects the optional agent adapter: a package of
+// files, pinned by its directory and package digest, which the runtime
+// driver installs in each session a creation pins it for. Session requests
+// and repository content never choose it.
 type AgentAdapterConfig struct {
-	ActivationPath string `json:"activation_path"`
-	PluginID       string `json:"plugin_id"`
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
 }
 
 // EnvironmentConfig is a closed trusted host selection. Project source and
@@ -307,12 +328,12 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 			return cfg, err
 		}
 	}
-	if cfg.Events != nil {
-		if cfg.Events.PluginID == "" || strings.TrimSpace(cfg.Events.PluginID) != cfg.Events.PluginID {
-			return cfg, errors.New("events.plugin_id is required")
+	if e := cfg.Events; e != nil {
+		if err := validatePinned("events", e.Path, e.SHA256); err != nil {
+			return cfg, err
 		}
-		if err := checkPath(cfg.Events.ActivationPath); err != nil {
-			return cfg, fmt.Errorf("events.activation_path: %w", err)
+		if err := validateConfigObject("events", e.Config); err != nil {
+			return cfg, err
 		}
 	}
 	if cfg.Runtime != nil {
@@ -405,11 +426,8 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 			}
 		}
 		if a := r.AgentAdapter; a != nil {
-			if a.PluginID == "" || strings.TrimSpace(a.PluginID) != a.PluginID || len(a.PluginID) > 128 {
-				return cfg, errors.New("invalid trusted agent adapter selection")
-			}
-			if err := checkPath(a.ActivationPath); err != nil {
-				return cfg, fmt.Errorf("agent_adapter.activation_path: %w", err)
+			if err := validatePinned("runtime.agent_adapter", a.Path, a.SHA256); err != nil {
+				return cfg, err
 			}
 		}
 	}

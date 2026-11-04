@@ -204,27 +204,6 @@ func loadPinnedServerKey(ctx context.Context, store serverIdentityStore, path st
 	return key, public, nil
 }
 
-func privateTrustedFile(path string) error {
-	if err := control.CheckTrustedAncestors(path); err != nil {
-		return err
-	}
-	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return err
-	}
-	f := os.NewFile(uintptr(fd), path)
-	defer f.Close()
-	info, err := f.Stat()
-	if err != nil {
-		return err
-	}
-	stat, ok := info.Sys().(*syscall.Stat_t)
-	if !ok || !info.Mode().IsRegular() || stat.Uid != uint32(os.Geteuid()) || stat.Nlink != 1 || info.Mode().Perm()&0077 != 0 {
-		return errors.New("file must be a private, singly linked regular file owned by the daemon user")
-	}
-	return nil
-}
-
 func loadOrCreateKey(path string) ([]byte, ssh.PublicKey, error) {
 	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
 		_, private, err := ed25519.GenerateKey(rand.Reader)

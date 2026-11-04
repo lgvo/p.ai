@@ -1,11 +1,8 @@
 {
-  "schema": "p.plugin/v1",
+  "schema": "p.plugin/v2",
   "id": "org.p.example.filterlog",
-  "version": "0.1.0",
-  "api": "1.0",
+  "version": "0.2.0",
+  "description": "Append only ready-condition events to a private host file.",
   "capability": "event-handler",
-  "placement": "host",
-  "description": "Append only reduced ready-condition events through the P broker.",
-  "runtime": {"kind": "wasi-command", "entry": "filter.wasm"},
-  "requests": ["event.file.append"]
+  "entry": "filter-log"
 }

@@ -8,7 +8,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/eventhandler"
 )
 
 // These tests state what the journal's one write path gives the daemon:
@@ -268,8 +268,8 @@ func TestAdmissionRefusesWorkCompetingWithAnUnfinishedOperation(t *testing.T) {
 }
 
 func TestEveryStatusChangeEmitsOneProgressEvent(t *testing.T) {
-	got := make(chan plugin.Event, 16)
-	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error { got <- e; return nil })
+	got := make(chan eventhandler.Event, 16)
+	d := testDelivery(context.Background(), func(_ context.Context, e eventhandler.Event) error { got <- e; return nil })
 	defer d.Close()
 	f := newJournalFixture(t)
 	l, ctx := observedLifecycle(t, f)

@@ -23,16 +23,21 @@ var (
 	versionRE = regexp.MustCompile(`^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$`)
 )
 
-var placements = map[string]string{
-	"event-handler": "host", "agent-adapter": "internal-session",
-}
+// The bounds of a package: its files, the manifest and the whole package.
+// They admit a native executable as an entry.
+const (
+	maxPackageFiles  = 128
+	maxFileBytes     = 32 << 20
+	maxPackageBytes  = 64 << 20
+	maxManifestBytes = 64 << 10
+)
 
-var grants = map[string]string{
-	"event.file.append": "event-handler", "agent.status.report": "agent-adapter",
-}
+// agentAdapterAssets are the files an agent-adapter package holds, each
+// named by its role.
+var agentAdapterAssets = []string{"p-codex-adapter"}
 
 // Conformance validates package data and returns its content digest. It never
-// starts package code or grants any requested operation.
+// starts package code.
 func Conformance(path string) (Package, error) {
 	pkg, _, err := packageSnapshot(context.Background(), path, nil)
 	return pkg, err
@@ -52,23 +57,31 @@ func packageSnapshot(ctx context.Context, path string, capture map[string]bool) 
 }
 
 func snapshotWithoutLease(ctx context.Context, path string, capture map[string]bool) (Package, map[string][]byte, error) {
-	var result Package
-	retained := map[string][]byte{}
 	if !filepath.IsAbs(path) {
-		return result, nil, errors.New("package path must be absolute")
+		return Package{}, nil, errors.New("package path must be absolute")
 	}
 	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
 	if err != nil {
-		return result, nil, err
+		return Package{}, nil, err
 	}
 	dir := os.NewFile(uintptr(fd), path)
 	defer dir.Close()
-	entries, err := dir.ReadDir(129)
-	if err != nil {
+	return snapshotOpen(ctx, path, dir, capture, nil)
+}
+
+// snapshotOpen hashes the package at path, whose directory dir is open,
+// and retains the bytes of the files capture names, or of every file for
+// "*". Each file is opened from dir without following a symbolic link;
+// opened, when set, sees each before it is read and may refuse it.
+func snapshotOpen(ctx context.Context, path string, dir *os.File, capture map[string]bool, opened func(name string, f *os.File) error) (Package, map[string][]byte, error) {
+	var result Package
+	retained := map[string][]byte{}
+	entries, err := dir.ReadDir(maxPackageFiles + 1)
+	if err != nil && !errors.Is(err, io.EOF) {
 		return result, nil, err
 	}
-	if len(entries) > 128 {
-		return result, nil, errors.New("package has more than 128 files")
+	if len(entries) > maxPackageFiles {
+		return result, nil, fmt.Errorf("package has more than %d files", maxPackageFiles)
 	}
 	var names []string
 	for _, entry := range entries {
@@ -87,7 +100,6 @@ func snapshotWithoutLease(ctx context.Context, path string, capture map[string]b
 	slices.Sort(names)
 	h := sha256.New()
 	var manifestData []byte
-	headers := map[string][4]byte{}
 	var totalSize int64
 	for _, name := range names {
 		if err := ctx.Err(); err != nil {
@@ -96,6 +108,12 @@ func snapshotWithoutLease(ctx context.Context, path string, capture map[string]b
 		file, err := openPackageFile(int(dir.Fd()), name)
 		if err != nil {
 			return result, nil, err
+		}
+		if opened != nil {
+			if err := opened(name, file); err != nil {
+				file.Close()
+				return result, nil, err
+			}
 		}
 		info, err := file.Stat()
 		if err != nil {
@@ -107,7 +125,7 @@ func snapshotWithoutLease(ctx context.Context, path string, capture map[string]b
 			return result, nil, fmt.Errorf("changed package file: %s", name)
 		}
 		totalSize += info.Size()
-		if info.Size() > 8<<20 || totalSize > 16<<20 {
+		if info.Size() > maxFileBytes || totalSize > maxPackageBytes {
 			file.Close()
 			return result, nil, fmt.Errorf("package size limit exceeded: %s", name)
 		}
@@ -124,7 +142,7 @@ func snapshotWithoutLease(ctx context.Context, path string, capture map[string]b
 			return result, nil, err
 		}
 		if name == "plugin.json" {
-			if info.Size() > 64<<10 {
+			if info.Size() > maxManifestBytes {
 				file.Close()
 				return result, nil, errors.New("manifest exceeds 64 KiB")
 			}
@@ -139,27 +157,15 @@ func snapshotWithoutLease(ctx context.Context, path string, capture map[string]b
 				_, err = h.Write(manifestData)
 			}
 		} else if capture[name] || capture["*"] {
-			if info.Size() > 8<<20 {
-				file.Close()
-				return result, nil, fmt.Errorf("captured package file too large: %s", name)
-			}
 			data, readErr := readBoundedContext(ctx, file, info.Size())
 			if readErr != nil || int64(len(data)) != info.Size() {
 				file.Close()
 				return result, nil, fmt.Errorf("package file changed during read: %s", name)
 			}
-			var header [4]byte
-			copy(header[:], data)
-			headers[name] = header
 			retained[name] = data
 			_, err = h.Write(data)
 		} else {
-			var header [4]byte
-			_, _ = io.ReadFull(file, header[:])
-			headers[name] = header
-			if _, err = file.Seek(0, io.SeekStart); err == nil {
-				_, err = copyNContext(ctx, h, file, info.Size())
-			}
+			_, err = copyNContext(ctx, h, file, info.Size())
 		}
 		if err == nil {
 			finalInfo, statErr := file.Stat()
@@ -174,15 +180,34 @@ func snapshotWithoutLease(ctx context.Context, path string, capture map[string]b
 			return result, nil, err
 		}
 	}
-	var manifest Manifest
-	if err := strictJSON(manifestData, &manifest); err != nil {
-		return result, nil, fmt.Errorf("manifest: %w", err)
+	manifest, err := decodeManifest(manifestData)
+	if err != nil {
+		return result, nil, err
 	}
-	if err := validateManifest(manifest, names, headers); err != nil {
+	if err := validateManifest(manifest, names); err != nil {
 		return result, nil, err
 	}
 	result = Package{Path: path, SHA256: hex.EncodeToString(h.Sum(nil)), Manifest: manifest}
 	return result, retained, nil
+}
+
+// decodeManifest reads a manifest strictly, after its schema: a manifest of
+// another schema is refused as such, not by its fields.
+func decodeManifest(data []byte) (Manifest, error) {
+	var manifest Manifest
+	var schema struct {
+		Schema string `json:"schema"`
+	}
+	if err := json.Unmarshal(data, &schema); err != nil {
+		return manifest, fmt.Errorf("manifest: %w", err)
+	}
+	if schema.Schema != ManifestSchema {
+		return manifest, fmt.Errorf("unsupported manifest schema %q", schema.Schema)
+	}
+	if err := strictJSON(data, &manifest); err != nil {
+		return manifest, fmt.Errorf("manifest: %w", err)
+	}
+	return manifest, nil
 }
 
 func readBoundedContext(ctx context.Context, source io.Reader, size int64) ([]byte, error) {
@@ -219,102 +244,53 @@ func copyNContext(ctx context.Context, dst io.Writer, src io.Reader, count int64
 	return total, nil
 }
 
-func validateManifest(m Manifest, names []string, headers map[string][4]byte) error {
-	if m.Schema != ManifestSchema {
-		return fmt.Errorf("unsupported manifest schema %q", m.Schema)
-	}
+func validateManifest(m Manifest, names []string) error {
 	if !idRE.MatchString(m.ID) {
 		return errors.New("invalid plugin id")
 	}
 	if !versionRE.MatchString(m.Version) {
 		return errors.New("version must be major.minor.patch")
 	}
-	if m.API != APIVersion {
-		return fmt.Errorf("unsupported plugin API %q", m.API)
-	}
-	placement, ok := placements[m.Capability]
-	if !ok {
-		return fmt.Errorf("unsupported capability %q", m.Capability)
-	}
-	if m.Placement != placement {
-		return fmt.Errorf("%s requires %s placement", m.Capability, placement)
-	}
 	if m.Description == "" || len(m.Description) > 512 {
 		return errors.New("description must be 1–512 characters")
 	}
-	if len(m.Requests) == 0 {
-		return errors.New("plugin requests no typed grants")
-	}
-	seen := map[string]bool{}
-	for _, req := range m.Requests {
-		if grants[req] != m.Capability {
-			return fmt.Errorf("grant %q is not available to %s", req, m.Capability)
+	declared := map[string]bool{"plugin.json": true}
+	switch m.Capability {
+	case CapabilityEventHandler:
+		if len(m.Assets) != 0 {
+			return fmt.Errorf("%s names an entry, not assets", m.Capability)
 		}
-		if seen[req] {
-			return fmt.Errorf("duplicate grant %q", req)
+		if m.Entry == "" {
+			return fmt.Errorf("%s requires an entry", m.Capability)
 		}
-		seen[req] = true
-	}
-	assets := map[string]bool{}
-	for _, asset := range m.Assets {
-		if err := safeRelative(asset); err != nil {
-			return fmt.Errorf("asset: %w", err)
-		}
-		if !slices.Contains(names, asset) {
-			return fmt.Errorf("missing asset %q", asset)
-		}
-		if assets[asset] {
-			return fmt.Errorf("duplicate asset %q", asset)
-		}
-		assets[asset] = true
-	}
-	if m.Runtime.Kind == "assets" {
-		var required []string
-		switch m.Capability {
-		case "agent-adapter":
-			required = []string{"p-codex-adapter"}
-		default:
-			return errors.New("asset capability is not implemented")
-		}
-		if len(m.Assets) != len(required) {
-			return errors.New("asset package must contain exact required roles")
-		}
-		for _, name := range required {
-			if !assets[name] {
-				return fmt.Errorf("missing asset role %q", name)
-			}
-		}
-	} else if len(m.Assets) != 0 {
-		return errors.New("assets require asset runtime")
-	}
-	switch m.Runtime.Kind {
-	case "wasi-command":
-		if err := safeRelative(m.Runtime.Entry); err != nil {
+		if err := safeRelative(m.Entry); err != nil {
 			return fmt.Errorf("entry: %w", err)
 		}
-		if !slices.Contains(names, m.Runtime.Entry) {
-			return fmt.Errorf("missing entry %q", m.Runtime.Entry)
+		if m.Entry == "plugin.json" || !slices.Contains(names, m.Entry) {
+			return fmt.Errorf("missing entry %q", m.Entry)
 		}
-		if headers[m.Runtime.Entry] != [4]byte{0, 97, 115, 109} {
-			return errors.New("entry is not a WebAssembly module")
+		declared[m.Entry] = true
+	case CapabilityAgentAdapter:
+		if m.Entry != "" {
+			return fmt.Errorf("%s holds files and names no entry", m.Capability)
 		}
-	case "declarative":
-		if m.Capability != "event-handler" || m.Runtime.Entry != "event.file.append" || len(m.Assets) != 0 {
-			return errors.New("unsupported declarative operation")
+		for _, asset := range m.Assets {
+			if err := safeRelative(asset); err != nil {
+				return fmt.Errorf("asset: %w", err)
+			}
+			if declared[asset] {
+				return fmt.Errorf("duplicate asset %q", asset)
+			}
+			if !slices.Contains(names, asset) {
+				return fmt.Errorf("missing asset %q", asset)
+			}
+			declared[asset] = true
 		}
-	case "assets":
-		if m.Runtime.Entry != "" || len(m.Assets) == 0 || m.Placement == "host" {
-			return errors.New("asset runtime requires internal-session placement and assets")
+		if !slices.Equal(m.Assets, agentAdapterAssets) {
+			return fmt.Errorf("%s must hold exactly the assets %q", m.Capability, agentAdapterAssets)
 		}
 	default:
-		return fmt.Errorf("unsupported runtime kind %q", m.Runtime.Kind)
-	}
-	declared := map[string]bool{"plugin.json": true}
-	if m.Runtime.Kind == "wasi-command" {
-		declared[m.Runtime.Entry] = true
-	}
-	for _, name := range m.Assets {
-		declared[name] = true
+		return fmt.Errorf("unsupported capability %q", m.Capability)
 	}
 	for _, name := range names {
 		if !declared[name] {
@@ -408,7 +384,7 @@ func rejectDuplicateKeys(data []byte) error {
 	return nil
 }
 
-// Discover lists conforming and nonconforming packages without activation.
+// Discover lists conforming and nonconforming packages; it selects none.
 func Discover(root string) ([]Package, map[string]string, error) {
 	entries, err := os.ReadDir(root)
 	if err != nil {

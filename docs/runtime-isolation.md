@@ -202,10 +202,11 @@ configuration without weakening its hardening.
 state directory are fixed by the module; a private, singly-linked, daemon-owned
 `STATE/host.json` is generated at each service start. Edit declarative settings
 rather than that generated file. `services.p.bundledActivation = true` approves
-generating the bundled selection once at `STATE/activation.json`; existing
-activation remains unchanged across restarts and can be explicitly updated by
-the trusted owner. Configuration and activation are validated by the normal
-daemon boundaries before runtime work. Service Stop or restart retains the
+selecting the package's bundled file-log, writing `STATE/events.ndjson`, and
+Codex adapter in the generated host configuration, by path and digest, unless
+the settings select their own `events` or `runtime.agent_adapter`.
+Configuration and selections are validated by the normal daemon boundaries
+before runtime work. Service Stop or restart retains the
 private state and native sessions; normal lifecycle cleanup retains its existing
 authority and recovery rules. The module supplies no backup, restore or software
 upgrade/rollback behavior.

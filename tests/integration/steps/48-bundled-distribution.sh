@@ -57,49 +57,55 @@ trap 'on_error "$?" "$LINENO"' ERR
 
 p version > "$step_dir/version.json"
 jq -e '.version=="0.1.0-dev" and .go_version=="go1.26.7" and
-  .control_protocol=="p.control/v2" and .plugin_api_version=="1.0" and
+  .control_protocol=="p.control/v2" and .plugin_schema=="p.plugin/v2" and
+  .event_handler_protocol=="p.event-handler/v1" and
   any(.dependencies[]; .path=="modernc.org/sqlite" and .version=="v1.39.1") and
-  any(.dependencies[]; .path=="github.com/tetratelabs/wazero" and .version=="v1.12.0")' \
+  all(.dependencies[]; .path!="github.com/tetratelabs/wazero")' \
   "$step_dir/version.json" >/dev/null
 package_root="$(dirname "$(dirname "$(readlink -f "$(command -v p)")")")"
 catalog="$package_root/share/p/plugins"
 # Inspect the installed artifacts, rather than a separately built candidate.
 test -s "$package_root/share/p/LICENSE"
 test -s "$package_root/share/p/licenses/modules/modernc.org/sqlite/LICENSE"
-test -s "$package_root/share/p/licenses/modules/github.com/tetratelabs/wazero/LICENSE"
 test -s "$package_root/share/p/licenses/vendor/modernc.org/memory/LICENSE-MMAP-GO"
 test -s "$package_root/share/p/licenses/vendor/modernc.org/libc/honnef.co/go/netdb/LICENSE"
-test -s "$package_root/share/p/licenses/vendor/github.com/tetratelabs/wazero/NOTICE"
+test ! -e "$package_root/share/p/licenses/modules/github.com/tetratelabs/wazero"
 test -s "$package_root/share/p/licenses/go/LICENSE"
 test -s "$package_root/share/p/licenses/go/PATENTS"
 test "$(cat "$package_root/share/p/licenses/go/VERSION")" = 1.26.7
-readelf -l "$package_root/bin/p" > "$step_dir/p-program-headers"
-readelf -d "$package_root/bin/p" > "$step_dir/p-dynamic-section"
-! grep -q INTERP "$step_dir/p-program-headers"
-! grep -q NEEDED "$step_dir/p-dynamic-section"
-p plugins defaults "$log_file" > "$step_dir/activation.json"
-jq -e --arg catalog "$catalog" --arg log "$log_file" '
-  .schema=="p.activation/v1" and
-  ([.plugins[].id]|sort)==["org.p.codex-adapter","org.p.filelog"] and
-  all(.plugins[]; (.path|startswith($catalog+"/")) and (.sha256|length)==64 and (.grants|length)==1) and
-  any(.plugins[]; .id=="org.p.filelog" and .config.path==$log)' "$step_dir/activation.json" >/dev/null
-p plugins list "$catalog" | jq -e '(.packages|length)==2 and (.rejected|length)==0' >/dev/null
-p plugins activate "$step_dir/activation.json" | jq -e 'length==2' >/dev/null
-p plugins plan-assets "$step_dir/activation.json" org.p.codex-adapter > "$step_dir/agent-plan.json"
+for program in "$package_root/bin/p" "$catalog/file-log/p-event-file"; do
+  readelf -l "$program" > "$step_dir/p-program-headers"
+  readelf -d "$program" > "$step_dir/p-dynamic-section"
+  ! grep -q INTERP "$step_dir/p-program-headers"
+  ! grep -q NEEDED "$step_dir/p-dynamic-section"
+done
+# The two bundled packages, selected for host configuration by path and
+# digest; the file-log's entry is the built handler, not a command.
+test ! -e "$package_root/bin/p-event-file"
+p plugins defaults "$log_file" > "$step_dir/defaults.json"
+p plugins list "$catalog" > "$step_dir/catalog.json"
+jq -e '(.packages|length)==2 and (.rejected|length)==0' "$step_dir/catalog.json" >/dev/null
+jq -e --arg catalog "$catalog" --arg log "$log_file" --slurpfile listed "$step_dir/catalog.json" '
+  ($listed[0].packages | map({key: .manifest.id, value: .sha256}) | from_entries) as $digest |
+  (keys|sort)==["events","runtime"] and (.runtime|keys)==["agent_adapter"] and
+  .events.path==($catalog+"/file-log") and .events.sha256==$digest["org.p.filelog"] and
+  .events.config=={path:$log,max_bytes:4194304} and
+  .runtime.agent_adapter=={path:($catalog+"/codex-adapter"),sha256:$digest["org.p.codex-adapter"]}' \
+  "$step_dir/defaults.json" >/dev/null
 test ! -e "$log_file"
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$(command -v incus)")
 source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
-jq -n --arg state "$state" --argjson source_driver "$source_driver" --arg activation "$step_dir/activation.json" \
+jq -n --arg state "$state" --argjson source_driver "$source_driver" --slurpfile defaults "$step_dir/defaults.json" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$image" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{listen:"127.0.0.1:0",driver:$source_driver},
-    runtime:{agent_adapter:{activation_path:$activation,plugin_id:"org.p.codex-adapter"},
+    runtime:{agent_adapter:$defaults[0].runtime.agent_adapter,
       driver:$driver,endpoint_prefix:$prefix,
       disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,
       environment:{system:"x86_64-linux",builder_storage_pool:"builders"},
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}},
-    events:{activation_path:$activation,plugin_id:"org.p.filelog"}}' > "$step_dir/host.json"
+    events:$defaults[0].events}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 start_daemon() {
   p daemon "$step_dir/host.json" >> "$step_dir/daemon.out" 2>> "$step_dir/daemon.err" &

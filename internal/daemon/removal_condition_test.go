@@ -10,7 +10,7 @@ import (
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/eventhandler"
 )
 
 func TestRemovalConditionInspectEventsAndRestart(t *testing.T) {
@@ -22,8 +22,8 @@ func TestRemovalConditionInspectEventsAndRestart(t *testing.T) {
 				if err != nil {
 					t.Fatal(err)
 				}
-				events := make(chan plugin.Event, 8)
-				d := testDelivery(f.ctx, func(_ context.Context, e plugin.Event) error { events <- e; return nil })
+				events := make(chan eventhandler.Event, 8)
+				d := testDelivery(f.ctx, func(_ context.Context, e eventhandler.Event) error { events <- e; return nil })
 				defer d.Close()
 				policy := control.ProjectPolicy{Network: "none", FilesystemMounts: []control.FilesystemGrant{}, Command: []string{"/bin/sh"}}
 				l := &lifecycle{ctx: f.ctx, store: f.m.store, events: d, cfg: control.RuntimeConfig{ProjectPolicies: map[string]control.ProjectPolicy{s.Project: policy}}}

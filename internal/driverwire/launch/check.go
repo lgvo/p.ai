@@ -53,12 +53,11 @@ func directoryRefusal(s fileStat, account uint32) string {
 	return ""
 }
 
-// executableRefusal says why the executable is not trusted: it must be a
-// regular file owned by root or account, writable by neither group nor
-// others, with one link unless root owns it and no one may write it, so no
-// writable alias shares its bytes, and with its owner's execute bit. It is
-// empty for a trusted executable.
-func executableRefusal(s fileStat, account uint32) string {
+// fileRefusal says why a file is not trusted: it must be a regular file
+// owned by root or account, writable by neither group nor others, with one
+// link unless root owns it and no one may write it, so no writable alias
+// shares its bytes. It is empty for a trusted file.
+func fileRefusal(s fileStat, account uint32) string {
 	switch {
 	case s.fileType() == syscall.S_IFLNK:
 		return "is a symbolic link"
@@ -70,7 +69,18 @@ func executableRefusal(s fileStat, account uint32) string {
 		return "is group- or world-writable"
 	case s.nlink != 1 && !(s.uid == 0 && s.perm()&0o222 == 0):
 		return "has another link while it can be written"
-	case s.perm()&0o100 == 0:
+	}
+	return ""
+}
+
+// executableRefusal says why the executable is not trusted: it must be a
+// trusted file with its owner's execute bit. It is empty for a trusted
+// executable.
+func executableRefusal(s fileStat, account uint32) string {
+	if reason := fileRefusal(s, account); reason != "" {
+		return reason
+	}
+	if s.perm()&0o100 == 0 {
 		return "lacks its owner's execute bit"
 	}
 	return ""
@@ -89,17 +99,20 @@ func validDigest(digest string) bool {
 	return true
 }
 
-func refused(path, reason string) error {
+// Refusal is the error of a launch check that refused path for reason, as
+// in "failed its launch checks: /path is group- or world-writable".
+func Refusal(path, reason string) error {
 	return fmt.Errorf("%w: %s %s", ErrLaunchCheck, path, reason)
 }
 
+func refused(path, reason string) error { return Refusal(path, reason) }
+
 // checkExecutable applies the launch checks to the driver executable at
 // path for account and returns it open: the file it checked and hashed,
-// which is the one to start. It opens the directory first, checks it and
-// every ancestor by path, confirms that the opened directory is the one
-// checked, opens the executable from that directory without following a
-// symbolic link, checks the open file, and only then hashes it against
-// digest.
+// which is the one to start. It opens the executable's directory as
+// OpenDirectory does, opens the executable from that directory without
+// following a symbolic link, checks the open file, and only then hashes it
+// against digest.
 func checkExecutable(path, digest string, account uint32) (*os.File, error) {
 	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
 		return nil, refused(path, "is not an absolute clean path")
@@ -107,24 +120,12 @@ func checkExecutable(path, digest string, account uint32) (*os.File, error) {
 	if !validDigest(digest) {
 		return nil, fmt.Errorf("%w: the pinned SHA-256 of %s is not 64 lowercase hex digits", ErrLaunchCheck, path)
 	}
-	dir, base := filepath.Dir(path), filepath.Base(path)
-	dirfd, err := syscall.Open(dir, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, refused(dir, "cannot be opened: "+err.Error())
-	}
-	defer syscall.Close(dirfd)
-	var opened syscall.Stat_t
-	if err := syscall.Fstat(dirfd, &opened); err != nil {
-		return nil, refused(dir, "cannot be read: "+err.Error())
-	}
-	named, err := checkDirectories(dir, account)
+	dir, err := OpenDirectory(filepath.Dir(path), account)
 	if err != nil {
 		return nil, err
 	}
-	if named.dev != uint64(opened.Dev) || named.ino != opened.Ino {
-		return nil, refused(dir, "changed while it was checked")
-	}
-	fd, err := syscall.Openat(dirfd, base, syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0)
+	defer dir.Close()
+	fd, err := syscall.Openat(int(dir.Fd()), filepath.Base(path), syscall.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC|syscall.O_NONBLOCK, 0)
 	if errors.Is(err, syscall.ELOOP) {
 		return nil, refused(path, "is a symbolic link")
 	}
@@ -132,9 +133,53 @@ func checkExecutable(path, digest string, account uint32) (*os.File, error) {
 		return nil, refused(path, "cannot be opened: "+err.Error())
 	}
 	f := os.NewFile(uintptr(fd), path)
-	if err := checkFile(f, path, digest, account); err != nil {
+	if err := CheckFile(f, path, account, true); err != nil {
 		f.Close()
 		return nil, err
+	}
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		f.Close()
+		return nil, refused(path, "cannot be hashed: "+err.Error())
+	}
+	if got := hex.EncodeToString(h.Sum(nil)); got != digest {
+		f.Close()
+		return nil, refused(path, "has SHA-256 "+got+", not the pinned "+digest)
+	}
+	return f, nil
+}
+
+// OpenDirectory applies the launch checks to the directory dir and its
+// ancestors for account and returns dir open: it opens dir first, checks it
+// and every ancestor by path, and confirms that the opened directory is the
+// one checked. Each must be a directory, not a symbolic link, owned by root
+// or account and writable by neither group nor others, unless root owns it
+// and it is sticky.
+func OpenDirectory(dir string, account uint32) (*os.File, error) {
+	if !filepath.IsAbs(dir) || filepath.Clean(dir) != dir {
+		return nil, refused(dir, "is not an absolute clean path")
+	}
+	dirfd, err := syscall.Open(dir, syscall.O_RDONLY|syscall.O_DIRECTORY|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, refused(dir, "is a symbolic link")
+	}
+	if err != nil {
+		return nil, refused(dir, "cannot be opened: "+err.Error())
+	}
+	f := os.NewFile(uintptr(dirfd), dir)
+	var opened syscall.Stat_t
+	if err := syscall.Fstat(dirfd, &opened); err != nil {
+		f.Close()
+		return nil, refused(dir, "cannot be read: "+err.Error())
+	}
+	named, err := checkDirectories(dir, account)
+	if err != nil {
+		f.Close()
+		return nil, err
+	}
+	if named.dev != uint64(opened.Dev) || named.ino != opened.Ino {
+		f.Close()
+		return nil, refused(dir, "changed while it was checked")
 	}
 	return f, nil
 }
@@ -161,21 +206,23 @@ func checkDirectories(dir string, account uint32) (fileStat, error) {
 	}
 }
 
-// checkFile checks the open executable f, then hashes it.
-func checkFile(f *os.File, path, digest string, account uint32) error {
+// CheckFile applies the launch checks for account to f, a file opened from
+// a directory OpenDirectory checked, which path names in a refusal: a
+// regular file owned by root or account, writable by neither group nor
+// others, with one link unless root owns it and no one may write it, so no
+// writable alias shares its bytes. An executable also needs its owner's
+// execute bit.
+func CheckFile(f *os.File, path string, account uint32, executable bool) error {
 	var st syscall.Stat_t
 	if err := syscall.Fstat(int(f.Fd()), &st); err != nil {
 		return refused(path, "cannot be read: "+err.Error())
 	}
-	if reason := executableRefusal(statOf(&st), account); reason != "" {
+	reason := fileRefusal(statOf(&st), account)
+	if executable {
+		reason = executableRefusal(statOf(&st), account)
+	}
+	if reason != "" {
 		return refused(path, reason)
-	}
-	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
-		return refused(path, "cannot be hashed: "+err.Error())
-	}
-	if got := hex.EncodeToString(h.Sum(nil)); got != digest {
-		return refused(path, "has SHA-256 "+got+", not the pinned "+digest)
 	}
 	return nil
 }

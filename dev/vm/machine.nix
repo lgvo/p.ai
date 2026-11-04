@@ -260,10 +260,6 @@ in
             };
           };
         };
-        events = {
-          activation_path = "${pState}/activation.json";
-          plugin_id = "org.p.filelog";
-        };
         runtime = {
           # Pinned here, not left to the module, since demo.nix also writes
           # a host configuration from these settings.
@@ -293,10 +289,6 @@ in
           environment = {
             system = "x86_64-linux";
             builder_storage_pool = "builders";
-          };
-          agent_adapter = {
-            activation_path = "${pState}/activation.json";
-            plugin_id = "org.p.codex-adapter";
           };
         };
       };

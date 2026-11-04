@@ -1,5 +1,7 @@
 # shellcheck shell=bash
 # Protected managed staging and offline removal, real selected daemon/session.
+# The staged file-log package handles events through p plugins run-event and
+# through the daemon, each with a host configuration that selects it.
 # No authentication; private/credential sentinels are dummy fixture bytes.
 set -E
 umask 077
@@ -55,41 +57,52 @@ expect_failure() {
 }
 jq -n --arg state "$state" '{schema:"p.host/v1",state_dir:$state}' > "$step_dir/offline.json"
 stage() {
- local source="$1" output="$2" digest
+ local source="$1" output="$2" digest path
  digest=$(p plugins conformance "$source" | jq -er '.sha256')
  p plugins install "$step_dir/offline.json" "$source" "$digest" > "$output"
- jq -e --arg sha "$digest" '.package.sha256==$sha and .selection.sha256==$sha and .explicit_trusted_selection_required==true' "$output" >/dev/null
- test "$(stat -c '%a' "$(jq -er '.package.path' "$output")")" = 500
- test "$(stat -c '%a' "$(jq -er '.package.path' "$output")/plugin.json")" = 400
+ jq -e --arg sha "$digest" '.package.sha256==$sha and .selection.sha256==$sha and .selection.path==.package.path and .explicit_trusted_selection_required==true' "$output" >/dev/null
+ path=$(jq -er '.package.path' "$output")
+ test "$(stat -c '%a:%u:%h' "$path")" = "500:$(id -u):2"
+ test "$(stat -c '%a:%u:%h' "$path/plugin.json")" = "400:$(id -u):1"
 }
 stage "$P_TEST_SOURCE/plugins/bundled/codex-adapter" "$step_dir/agent-stage.json"
-cp -R "$P_TEST_SOURCE/plugins/bundled/file-log" "$step_dir/event-source"
+test "$(stat -c '%a' "$(jq -er '.package.path' "$step_dir/agent-stage.json")/p-codex-adapter")" = 400
+package_root="$(dirname "$(dirname "$(readlink -f "$(command -v p)")")")"
+cp -R "$package_root/share/p/plugins/file-log" "$step_dir/event-source"
 chmod -R u+w "$step_dir/event-source"
 event_source="$step_dir/event-source"
 event_digest=$(p plugins conformance "$event_source" | jq -er '.sha256')
 expect_failure 'explicitly approved digest' p plugins install "$step_dir/offline.json" "$event_source" "$(printf '%064d' 0)"
 stage "$event_source" "$step_dir/event-stage.json"
 old_path=$(jq -er '.package.path' "$step_dir/event-stage.json")
-# Source-author edits are not activation or an update of the staged bytes.
-jq '.version="1.0.1"|.description="Explicitly reviewed plugin update"' "$event_source/plugin.json" > "$step_dir/source-next.json"
+# Staging sets the modes the launch checks need: the entry may be started.
+test "$(stat -c '%a:%h' "$old_path/p-event-file")" = 500:1
+# Source-author edits are not a selection or an update of the staged bytes.
+jq '.description="Explicitly reviewed plugin update"' "$event_source/plugin.json" > "$step_dir/source-next.json"
 mv "$step_dir/source-next.json" "$event_source/plugin.json"
 test "$(p plugins conformance "$old_path" | jq -er '.sha256')" = "$event_digest"
 new_digest=$(p plugins conformance "$event_source" | jq -er '.sha256')
 test "$new_digest" != "$event_digest"
 expect_failure 'opened package bytes differ' p plugins update "$step_dir/offline.json" "$event_digest" "$event_source" "$event_digest"
-# Explicit trusted selections use printed paths/digests/grants, adding only
-# capability config reviewed here by the host owner.
-jq '{schema:"p.activation/v1",plugins:[.selection|.config={}]}' "$step_dir/agent-stage.json" > "$step_dir/agent.json"
+# Host configuration selects the staged packages by the printed selections,
+# adding only the handler's config, reviewed here by the host owner.
 log="$step_dir/events.ndjson"
-jq --arg log "$log" '{schema:"p.activation/v1",plugins:[.selection|.config={path:$log,max_bytes:1048576}]}' "$step_dir/event-stage.json" > "$step_dir/events.json"
+jq --arg log "$log" '.selection|.config={path:$log,max_bytes:1048576}' "$step_dir/event-stage.json" > "$step_dir/events.json"
+# A private host configuration holding only state_dir and events is enough
+# to try the staged handler.
+jq -n --arg state "$state" --slurpfile events "$step_dir/events.json" \
+ '{schema:"p.host/v1",state_dir:$state,events:$events[0]}' > "$step_dir/offline-events.json"
+jq -n '{schema:"p.event/v1",id:"event-54",kind:"session.condition_changed",occurred_at:"2026-09-23T00:00:00Z",instance:"p-vm",fields:{condition:"ready"}}' > "$step_dir/event.json"
+p plugins run-event "$step_dir/offline-events.json" "$step_dir/event.json" | jq -e '.status=="handled" and .event_id=="event-54"' >/dev/null
+jq -se 'length==1 and .[0].id=="event-54"' "$log" >/dev/null
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$(command -v incus)")
 source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
-jq -n --arg state "$state" --argjson source_driver "$source_driver" --arg agent "$step_dir/agent.json" \
- --arg events "$step_dir/events.json" --arg prefix "$endpoint_prefix" --argjson driver "$driver" --arg image "$image" \
+jq -n --arg state "$state" --argjson source_driver "$source_driver" --slurpfile agent "$step_dir/agent-stage.json" \
+ --slurpfile events "$step_dir/events.json" --arg prefix "$endpoint_prefix" --argjson driver "$driver" --arg image "$image" \
  '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:$source_driver},
- events:{activation_path:$events,plugin_id:"org.p.filelog"},
- runtime:{agent_adapter:{activation_path:$agent,plugin_id:"org.p.codex-adapter"},driver:$driver,endpoint_prefix:$prefix,
+ events:$events[0],
+ runtime:{agent_adapter:$agent[0].selection,driver:$driver,endpoint_prefix:$prefix,
  disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,
  project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
@@ -118,6 +131,10 @@ expect_failure 'daemon stopped' p plugins remove "$step_dir/offline.json" "$even
 create=$(rpc project.create '{"key":"managed-bootstrap","project":"managed-plugins"}')
 uuid=$(jq -er '.result.operation.session_uuid' <<< "$create")
 wait_completed "$(jq -er '.result.operation.id' <<< "$create")"
+# The daemon delivers the creation's events to the staged handler.
+delivered() { jq -se --arg uuid "$uuid" 'any(.[]; .session==$uuid and .kind=="operation.progress" and .fields.phase=="completed")' "$log" >/dev/null; }
+for ((i=0;i<100;i++)); do if delivered; then break; fi; sleep 0.1; done
+delivered
 stop=$(rpc session.stop "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" |
  jq -er '.result | select(.changed==true and .operation.kind=="session.stop") | .operation.id')
 wait_completed "$stop"
@@ -129,27 +146,26 @@ inc file push "$step_dir/credential" "p-$uuid/home/p/.managed-credential" --uid 
 key_sha=$(sha256sum "$state/session_keys/$uuid" | cut -d ' ' -f1)
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].expanded_config["security.idmap.isolated"]=="true" and (.[0].expanded_config["security.nesting"] // "false")=="false"' >/dev/null
 stop_daemon
-expect_failure 'selected in trusted activation' p plugins remove "$step_dir/host.json" "$event_digest"
+expect_failure 'selected in host configuration' p plugins remove "$step_dir/host.json" "$event_digest"
 agent_digest=$(jq -er '.package.sha256' "$step_dir/agent-stage.json")
 expect_failure 'durable session/operation/cache depends' p plugins remove "$step_dir/offline.json" "$agent_digest"
 test -d "$(jq -er '.package.path' "$step_dir/agent-stage.json")"
 p plugins update "$step_dir/host.json" "$event_digest" "$event_source" "$new_digest" > "$step_dir/update.json"
 jq -e --arg old "$event_digest" --arg new "$new_digest" '.previous_sha256==$old and .package.sha256==$new and .explicit_trusted_selection_required' "$step_dir/update.json" >/dev/null
-# Staging did not select the update: the old trusted activation is unchanged.
-test "$(jq -er '.plugins[0].sha256' "$step_dir/events.json")" = "$event_digest"
-cp "$step_dir/events.json" "$step_dir/old-events.json"
-jq --arg log "$log" '{schema:"p.activation/v1",plugins:[.selection|.config={path:$log,max_bytes:1048576}]}' "$step_dir/update.json" > "$step_dir/events.next.json"
-mv "$step_dir/events.next.json" "$step_dir/events.json"
+# Staging did not select the update: host configuration is unchanged.
+test "$(jq -er '.events.sha256' "$step_dir/host.json")" = "$event_digest"
+jq --slurpfile update "$step_dir/update.json" '.events.path=$update[0].selection.path | .events.sha256=$update[0].selection.sha256' \
+ "$step_dir/host.json" > "$step_dir/host.next.json"
+mv "$step_dir/host.next.json" "$step_dir/host.json"
 start_daemon
 rpc session.inspect "$(jq -nc --arg uuid "$uuid" '{uuid:$uuid}')" | jq -e '.result.session.session_condition=="stopped"' >/dev/null
 stop_daemon
 p plugins remove "$step_dir/host.json" "$event_digest" | jq -e '.status=="removed" and .new_invocations=="disabled"' >/dev/null
 p plugins remove "$step_dir/host.json" "$event_digest" | jq -e '.status=="removed"' >/dev/null
 test ! -e "$old_path"
-expect_failure 'permanently disabled' p plugins activate "$step_dir/old-events.json"
-# A different instance cannot select a cached managed package from this registry.
-jq -n --arg state "$step_dir/foreign-state" --arg events "$step_dir/events.json" \
- '{schema:"p.host/v1",state_dir:$state,events:{activation_path:$events,plugin_id:"org.p.filelog"}}' > "$step_dir/foreign.json"
+expect_failure 'permanently disabled' p plugins run-event "$step_dir/offline-events.json" "$step_dir/event.json"
+# A different instance cannot select a managed package from this registry.
+jq --arg state "$step_dir/foreign-state" '.state_dir=$state | {schema,state_dir,events}' "$step_dir/host.json" > "$step_dir/foreign.json"
 expect_failure 'another P instance' timeout 15 p daemon "$step_dir/foreign.json"
 test "$(sha256sum "$state/session_keys/$uuid" | cut -d ' ' -f1)" = "$key_sha"
 inc file pull "p-$uuid/home/p/managed-private" "$step_dir/private-after"

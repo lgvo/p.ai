@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# Retained branch Rename with real daemon RPC, local SSH origin, selected
-# WASI Git and a disposable confined session. No external credentials.
+# Retained branch Rename with real daemon RPC, local SSH origin,
+# the source driver and a disposable confined session. No external credentials.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-43"

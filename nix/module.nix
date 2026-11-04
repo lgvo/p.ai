@@ -31,7 +31,19 @@ let
       '.${d.block}.driver += {path: $path, sha256: $sha256}' host.json > pinned.json
     mv pinned.json host.json
   '';
-  host = if packaged != [ ]
+  # The bundled file-log and Codex adapter, selected by their packages'
+  # paths and digests in the generated host configuration, unless settings
+  # select their own; the file-log writes STATE/events.ndjson.
+  bundled = ''
+    ${cfg.package}/bin/p plugins defaults ${lib.escapeShellArg "${state}/events.ndjson"} \
+      ${cfg.package}/share/p/plugins > defaults.json
+    jq -c --slurpfile d defaults.json '
+      (if has("events") then . else .events = $d[0].events end)
+      | (if .runtime | has("agent_adapter") then . else .runtime.agent_adapter = $d[0].runtime.agent_adapter end)' \
+      host.json > selected.json
+    mv selected.json host.json
+  '';
+  host = if packaged != [ ] || cfg.bundledActivation
     then pkgs.runCommand "p-host.json" {
       nativeBuildInputs = [ pkgs.jq ];
       settings = builtins.toJSON hostSettings;
@@ -39,6 +51,7 @@ let
     } ''
       cp "$settingsPath" host.json
       ${lib.concatMapStrings pin packaged}
+      ${lib.optionalString cfg.bundledActivation bundled}
       cp host.json "$out"
     ''
     else pkgs.writeText "p-host.json" (builtins.toJSON hostSettings);
@@ -50,16 +63,6 @@ let
     ${pkgs.coreutils}/bin/cat ${host} > "$pending"
     ${pkgs.coreutils}/bin/chmod 0600 "$pending"
     ${pkgs.coreutils}/bin/mv -T -- "$pending" ${lib.escapeShellArg "${state}/host.json"}
-    ${lib.optionalString cfg.bundledActivation ''
-      activation=${lib.escapeShellArg "${state}/activation.json"}
-      if ! test -e "$activation" && ! test -L "$activation"; then
-        pending=$(${pkgs.coreutils}/bin/mktemp ${lib.escapeShellArg "${state}/activation.XXXXXXXX"})
-        ${cfg.package}/bin/p plugins defaults ${lib.escapeShellArg "${state}/events.ndjson"} \
-          ${cfg.package}/share/p/plugins > "$pending"
-        ${pkgs.coreutils}/bin/chmod 0600 "$pending"
-        ${pkgs.coreutils}/bin/mv -T -- "$pending" "$activation"
-      fi
-    ''}
   '';
 in {
   options.services.p = {
@@ -85,7 +88,7 @@ in {
     };
     bundledActivation = lib.mkOption {
       type = lib.types.bool; default = false;
-      description = "Approve generating the bundled two-role selection once at STATE/activation.json; existing selections are preserved.";
+      description = "Approve selecting the package's bundled file-log event handler, writing STATE/events.ndjson, and Codex agent adapter in the generated host configuration, by path and digest; settings that select their own events or runtime.agent_adapter keep it.";
     };
   };
   config = lib.mkIf cfg.enable {

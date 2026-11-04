@@ -6,9 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 	"path/filepath"
+	"syscall"
+	"time"
 
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/eventhandler"
+	handlers "github.com/lgvo/p.ai/internal/eventhandler/supervise"
 	"github.com/lgvo/p.ai/internal/plugin"
 )
 
@@ -70,16 +76,8 @@ func managePlugins(args []string) error {
 			if e != nil {
 				return e
 			}
-			for _, path := range fresh.PluginActivationPaths() {
-				active, e := plugin.LoadPrivateActivation(path)
-				if e != nil {
-					return e
-				}
-				for _, selected := range active {
-					if selected.Package.SHA256 == digest {
-						return errors.New("package is selected in trusted activation; explicitly deselect it and its host role, then retry with daemon stopped")
-					}
-				}
+			if fresh.SelectsPackage(digest) {
+				return errors.New("package is selected in host configuration; deselect it from its role, then retry with the daemon stopped")
 			}
 			return store.CheckPluginRemovalDependencies(ctx, digest)
 		}
@@ -92,4 +90,62 @@ func managePlugins(args []string) error {
 		return printJSON(map[string]any{"sha256": digest, "path": filepath.Join(cfg.StateDir, "plugins", "packages", digest), "status": "removed", "new_invocations": "disabled", "reinstall": "new approved digest required", "session_assets_and_credentials": "preserved"})
 	}
 	return usage()
+}
+
+// runEvent starts the event handler the host configuration at host selects,
+// after its launch checks, sends it the event in the file at path, and
+// prints what the handler did with it. It is a diagnostic command: the
+// daemon's delivery is not involved.
+func runEvent(host, path string) error {
+	cfg, err := control.LoadHostConfig(host)
+	if err != nil {
+		return err
+	}
+	if cfg.Events == nil {
+		return errors.New("the host configuration selects no event handler")
+	}
+	event, err := readEvent(path)
+	if err != nil {
+		return err
+	}
+	release, err := plugin.LeasePackage(cfg.Events.Path)
+	if err != nil {
+		return err
+	}
+	defer release()
+	handler, err := handlers.Start(context.Background(), handlers.Config{Path: cfg.Events.Path, SHA256: cfg.Events.SHA256, Config: cfg.Events.Config})
+	if err != nil {
+		return err
+	}
+	defer handler.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	status, err := handler.Handle(ctx, event)
+	if err != nil {
+		return err
+	}
+	return printJSON(map[string]string{"status": string(status), "event_id": event.ID})
+}
+
+// readEvent reads one event from the regular file at path, without
+// following a symbolic link or blocking on a FIFO.
+func readEvent(path string) (eventhandler.Event, error) {
+	fd, err := syscall.Open(path, syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
+	if err != nil {
+		return eventhandler.Event{}, err
+	}
+	f := os.NewFile(uintptr(fd), path)
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil {
+		return eventhandler.Event{}, err
+	}
+	if !info.Mode().IsRegular() {
+		return eventhandler.Event{}, errors.New("event file must be regular")
+	}
+	data, err := io.ReadAll(io.LimitReader(f, eventhandler.MaxEventBytes+1))
+	if err != nil {
+		return eventhandler.Event{}, err
+	}
+	return eventhandler.ParseEvent(data)
 }

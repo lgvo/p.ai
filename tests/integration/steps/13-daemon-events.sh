@@ -1,6 +1,9 @@
 # shellcheck shell=bash
-# Real configured daemon, selected host event handler, Incus session RPC,
-# and the ordinary trusted attachment helper in the disposable product VM.
+# Real configured daemon, the bundled file-log event handler as the daemon
+# starts it, Incus session RPC, and the ordinary trusted attachment helper in
+# the disposable product VM. The handler is restarted after it is killed or
+# misses a deadline, stays stopped once its package changes, and a changed
+# digest or a loosened mode refuses the daemon's start.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-13"
@@ -70,21 +73,18 @@ trap on_exit EXIT
 trap 'error_line=$LINENO' ERR
 
 event_package="$step_dir/file-log"
-cp -R "$P_TEST_SOURCE/plugins/bundled/file-log" "$event_package"
+package_root="$(dirname "$(dirname "$(readlink -f "$(command -v p)")")")"
+cp -R "$package_root/share/p/plugins/file-log" "$event_package"
 chmod -R u+w "$event_package"
 cp "$event_package/plugin.json" "$step_dir/pristine-plugin.json"
 event_digest=$(p plugins conformance "$event_package" | jq -er '.sha256 | select(type=="string" and length==64)')
-jq -n --arg path "$event_package" --arg digest "$event_digest" --arg log "$log_file" \
-  '{schema:"p.activation/v1",plugins:[{id:"org.p.filelog",path:$path,sha256:$digest,
-   grants:["event.file.append"],config:{path:$log,max_bytes:1048576}}]}' > "$step_dir/events.json"
-p plugins activate "$step_dir/events.json" | jq -e '.[0].capability=="event-handler"' >/dev/null
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 incus_binary=$(command -v incus)
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_binary")
 source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
 jq -n --arg state "$state" --argjson source_driver "$source_driver" \
-  --arg event_activation "$step_dir/events.json" --argjson driver "$driver" \
+  --arg event_package "$event_package" --arg event_digest "$event_digest" --arg log "$log_file" --argjson driver "$driver" \
   --arg prefix "$endpoint_prefix" --arg image "$fingerprint" \
   '{schema:"p.host/v1",state_dir:$state,
    git:{listen:"127.0.0.1:0",driver:$source_driver},
@@ -92,7 +92,7 @@ jq -n --arg state "$state" --argjson source_driver "$source_driver" \
     endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
     base_image_fingerprint:$image,
     project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}},
-   events:{activation_path:$event_activation,plugin_id:"org.p.filelog"}}' > "$step_dir/host.json"
+   events:{path:$event_package,sha256:$event_digest,config:{path:$log,max_bytes:1048576}}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 
 start_daemon() {
@@ -152,6 +152,49 @@ wait_event() {
   return 1
 }
 event_count() { if test -f "$log_file"; then wc -l < "$log_file"; else echo 0; fi; }
+# wait_new_event KIND FIELD VALUE COUNT: an event of KIND with FIELD VALUE
+# reaches the log after its first COUNT lines.
+wait_new_event() {
+  local kind="$1" field="$2" value="$3" count="$4" deadline=$((SECONDS+30))
+  while ((SECONDS < deadline)); do
+    if tail -n "+$((count + 1))" "$log_file" | jq -se --arg kind "$kind" --arg field "$field" --arg value "$value" \
+      'any(.[]; .kind==$kind and .fields[$field]==$value)' >/dev/null 2>&1; then return; fi
+    sleep 0.1
+  done
+  echo "missing new event: $kind $field=$value" >&2
+  return 1
+}
+# handler_pid: the event handler the daemon runs, a child it started from
+# the package's entry.
+handler_pid() {
+  local proc argv0 ppid
+  for proc in /proc/[0-9]*; do
+    argv0=$(tr '\0' '\n' < "$proc/cmdline" 2>/dev/null | head -n 1) || continue
+    test "$argv0" = "$event_package/p-event-file" || continue
+    ppid=$(awk '{print $4}' "$proc/stat" 2>/dev/null) || continue
+    if test "$ppid" = "$daemon_pid"; then printf '%s\n' "${proc#/proc/}"; return; fi
+  done
+}
+# wait_handler OLD: the daemon runs a handler other than process OLD.
+wait_handler() {
+  local old="$1" now deadline=$((SECONDS+20))
+  while ((SECONDS < deadline)); do
+    now=$(handler_pid || true)
+    if test -n "$now" && test "$now" != "$old"; then printf '%s\n' "$now"; return; fi
+    sleep 0.1
+  done
+  echo "the event handler was not started again" >&2
+  return 1
+}
+wait_log() {
+  local text="$1" deadline=$((SECONDS+20))
+  while ((SECONDS < deadline)); do
+    if grep -Fq -- "$text" "$step_dir/daemon.err"; then return; fi
+    sleep 0.1
+  done
+  echo "the daemon did not log: $text" >&2
+  return 1
+}
 guest_report() {
   local condition="$1" reason="$2" response
   response=$(inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace \
@@ -209,11 +252,11 @@ inc file push --uid 1000 --gid 1000 --mode 0755 \
 test -S "$endpoint_prefix/$uuid/session.sock"
 
 # Repository content can name a different handler, but daemon selection is
-# supplied only by the private host config and activation file above.
+# supplied only by the private host config above.
 # shellcheck disable=SC2016 # $1 is expanded by the guest shell.
 inc exec "p-$uuid" --user 1000 --group 1000 --cwd /workspace -- \
   sh -c 'printf "%s\n" "$1" > /workspace/p.host.json' sh \
-  '{"schema":"p.host/v1","events":{"plugin_id":"org.p.unselected"}}'
+  '{"schema":"p.host/v1","events":{"path":"/workspace/handler","sha256":"0000000000000000000000000000000000000000000000000000000000000000","config":{}}}'
 
 # A report's arbitrary reason is reduced before delivery. The first live
 # attachment emits count=1 and a subsequent clear, in reducer commit order.
@@ -294,7 +337,7 @@ inspect | jq -e --arg sha "$original_policy_sha" \
   '.result.session.policy_condition=="current" and .result.session.policy_sha256==$sha' >/dev/null
 wait_event session.policy_changed policy_condition current
 
-# An unsafe final log object makes the broker fail after commit. The daemon
+# An unsafe final log object makes the handler fail after commit. The daemon
 # reports a fixed diagnostic and the normal Stop still reaches authoritative state.
 mv "$log_file" "$step_dir/events-before-failure.ndjson"
 mkdir -m 0700 "$log_file"
@@ -314,25 +357,59 @@ fi
 rmdir "$log_file"
 mv "$step_dir/events-before-failure.ndjson" "$log_file"
 
-# A package changed after activation is refused on the next daemon event.
-count_before_tamper=$(event_count)
+# A handler killed while the daemon runs is started again, and later events
+# reach the new one.
+killed=$(handler_pid)
+test -n "$killed"
+kill -KILL "$killed"
+restarted=$(wait_handler "$killed")
+wait_log "restarting it"
+count_before_start=$(event_count)
+change_session session.start
+wait_condition ready
+wait_new_event session.condition_changed condition ready "$count_before_start"
+
+# A handler that misses an event's 2-second deadline is killed and started
+# again; the events that arrive while it is down are dropped, the drop is
+# logged, and later events reach the new handler.
+kill -STOP "$restarted"
+change_session session.stop
+inspect | jq -e '.result.session.session_condition=="stopped"' >/dev/null
+wait_log "event handler deadline exceeded; restarting it"
+stopped_handler="$restarted"
+restarted=$(wait_handler "$stopped_handler")
+if test -e "/proc/$stopped_handler"; then
+  echo 'the handler that missed its deadline was not ended' >&2
+  exit 1
+fi
+count_before_start=$(event_count)
+change_session session.start
+wait_condition ready
+wait_new_event session.condition_changed condition ready "$count_before_start"
+wait_log "event delivery dropped"
+
+# A package changed while its handler runs is not started again: once the
+# handler ends, it stays stopped and later events are not delivered.
 printf '\n' >> "$event_package/plugin.json"
+kill -KILL "$restarted"
+wait_log "did not restart and stays stopped"
+grep -Fq 'failed its launch checks' "$step_dir/daemon.err"
+count_before_tamper=$(event_count)
+change_session session.stop
 change_session session.start
 wait_condition ready
 sleep 3
 test "$(event_count)" -eq "$count_before_tamper"
 cp "$step_dir/pristine-plugin.json" "$event_package/plugin.json"
 
-# The selected WASI example runs through the same daemon seam. It writes
-# only the ready-condition transition to its separately configured log.
+# The example filter, a native handler built apart from P, runs through the
+# same daemon seam from its read-only package. It writes only the
+# ready-condition transition to its separately configured log.
 stop_daemon
-filter_digest=$(p plugins conformance "$P_TEST_WASI_FILTER" | jq -er '.sha256 | select(type=="string" and length==64)')
+filter_digest=$(p plugins conformance "$P_TEST_EVENT_FILTER" | jq -er '.sha256 | select(type=="string" and length==64)')
 filter_log="$private/filter.ndjson"
-jq -n --arg path "$P_TEST_WASI_FILTER" --arg digest "$filter_digest" --arg log "$filter_log" \
-  '{schema:"p.activation/v1",plugins:[{id:"org.p.example.filterlog",path:$path,sha256:$digest,
-    grants:["event.file.append"],config:{path:$log,max_bytes:1048576}}]}' > "$step_dir/filter-events.json"
-jq --arg path "$step_dir/filter-events.json" \
-  '.events={activation_path:$path,plugin_id:"org.p.example.filterlog"}' \
+jq --arg path "$P_TEST_EVENT_FILTER" --arg digest "$filter_digest" --arg log "$filter_log" \
+  '.events={path:$path,sha256:$digest,config:{path:$log,max_bytes:1048576}}' \
   "$step_dir/host.json" > "$step_dir/host.next.json"
 mv "$step_dir/host.next.json" "$step_dir/host.json"
 start_daemon
@@ -349,19 +426,29 @@ jq -se --arg uuid "$uuid" --arg instance "$instance_id" \
   'length>0 and all(.[]; .schema=="p.event/v1" and .kind=="session.condition_changed" and .fields=={condition:"ready"} and .session==$uuid and .instance==$instance)' "$filter_log" >/dev/null
 test "$(stat -c '%a' "$filter_log")" = 600
 
-# Invalid trusted selection is refused before the daemon becomes ready.
+# Invalid trusted selection is refused before the daemon becomes ready: an
+# activation file, a changed digest and a loosened mode.
 stop_daemon
-jq '.events.plugin_id="org.p.unselected"' "$step_dir/host.json" > "$step_dir/host.invalid.json"
-if timeout 15 p daemon "$step_dir/host.invalid.json" > "$step_dir/invalid.out" 2> "$step_dir/invalid.err"; then
-  echo 'daemon accepted an unselected event handler' >&2
-  exit 1
-fi
-grep -Fq 'selected event handler unavailable' "$step_dir/invalid.err"
-jq '.plugins[0].grants=["git.project"]' "$step_dir/events.json" > "$step_dir/events.invalid.json"
-jq --arg path "$step_dir/events.invalid.json" '.events.activation_path=$path' "$step_dir/host.json" > "$step_dir/host.invalid-grant.json"
-if timeout 15 p daemon "$step_dir/host.invalid-grant.json" > "$step_dir/grant.out" 2> "$step_dir/grant.err"; then
-  echo 'daemon accepted an ungranted event handler' >&2
-  exit 1
-fi
-grep -Eq 'grants must exactly match|selected event handler unavailable' "$step_dir/grant.err"
+refused_start() {
+  local host="$1" expected="$2"
+  if timeout 15 p daemon "$host" > "$step_dir/invalid.out" 2> "$step_dir/invalid.err"; then
+    echo "daemon accepted $host" >&2
+    return 1
+  fi
+  if ! grep -Fq -- "$expected" "$step_dir/invalid.err"; then
+    head -c 2048 "$step_dir/invalid.err" >&2
+    return 1
+  fi
+}
+jq '.events={activation_path:"/var/lib/p/activation.json",plugin_id:"org.p.filelog"}' "$step_dir/host.json" > "$step_dir/host.invalid.json"
+refused_start "$step_dir/host.invalid.json" 'unknown field'
+jq --arg path "$event_package" --arg digest "$event_digest" --arg log "$log_file" \
+  '.events={path:$path,sha256:$digest,config:{path:$log,max_bytes:1048576}}' "$step_dir/host.json" > "$step_dir/host.selected.json"
+printf '\n' >> "$event_package/plugin.json"
+refused_start "$step_dir/host.selected.json" 'failed its launch checks'
+grep -Fq "not the pinned $event_digest" "$step_dir/invalid.err"
+cp "$step_dir/pristine-plugin.json" "$event_package/plugin.json"
+chmod g+w "$event_package/p-event-file"
+refused_start "$step_dir/host.selected.json" 'p-event-file is group- or world-writable'
+chmod g-w "$event_package/p-event-file"
 echo P_DAEMON_EVENTS_PASS

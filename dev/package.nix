@@ -61,22 +61,31 @@ buildGoModule {
   pname = "p";
   version = "0.1.0-dev";
   src = source;
-  vendorHash = "sha256-YZmEJBF15LmqH7gACdtJUBoLDZ/oO2oy2ILwQK8NAUY=";
-  # P and the two drivers it starts, which ship with it.
+  vendorHash = "sha256-i9pvtdmVpiU1spAIiLqqUpJbV0fCZsDHRUKc6eOBAac=";
+  # P, the two drivers it starts, which ship with it, and the bundled
+  # file-log event handler, the entry of its plugin package.
   subPackages = [
     "cmd/p"
     "cmd/p-runtime-incus"
     "cmd/p-source-git"
+    "cmd/p-event-file"
   ];
   env.CGO_ENABLED = "0";
   nativeBuildInputs = [ go-licenses ];
   postBuild = ''
-    go-licenses check --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC ./cmd/p ./cmd/p-runtime-incus ./cmd/p-source-git
-    go-licenses save --save_path="$TMPDIR/p-module-notices" ./cmd/p ./cmd/p-runtime-incus ./cmd/p-source-git
+    go-licenses check --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC ./cmd/p ./cmd/p-runtime-incus ./cmd/p-source-git ./cmd/p-event-file
+    go-licenses save --save_path="$TMPDIR/p-module-notices" ./cmd/p ./cmd/p-runtime-incus ./cmd/p-source-git ./cmd/p-event-file
   '';
   postInstall = ''
     mkdir -p "$out/share/p/plugins"
     cp -R ${bundledPlugins}/plugins/. "$out/share/p/plugins/"
+    # The file-log package's entry is the handler built here, not a command.
+    # A fixture build that overrides subPackages builds no handler.
+    if test -e "$out/bin/p-event-file"; then
+      chmod u+w "$out/share/p/plugins/file-log"
+      mv "$out/bin/p-event-file" "$out/share/p/plugins/file-log/p-event-file"
+      chmod u-w "$out/share/p/plugins/file-log"
+    fi
     cp LICENSE "$out/share/p/LICENSE"
     mkdir -p "$out/share/p/licenses"
     cp -R "$TMPDIR/p-module-notices" "$out/share/p/licenses/modules"

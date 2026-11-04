@@ -23,7 +23,7 @@ buildGoModule {
         "LICENSE"
       ];
   };
-  vendorHash = "sha256-YZmEJBF15LmqH7gACdtJUBoLDZ/oO2oy2ILwQK8NAUY=";
+  vendorHash = "sha256-i9pvtdmVpiU1spAIiLqqUpJbV0fCZsDHRUKc6eOBAac=";
   subPackages = [ "cmd/p-runtime-kit" ];
   env.CGO_ENABLED = "0";
   nativeBuildInputs = [ go-licenses ];

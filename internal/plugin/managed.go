@@ -5,24 +5,28 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"syscall"
 )
 
-// ManagedRegistry binds staged packages to one durable P instance. It is not an
-// activation catalog: only explicit trusted configuration grants invocation.
+// ManagedRegistry binds staged packages to one durable P instance. It is not
+// a selection: only trusted host configuration selects a package.
 type ManagedRegistry struct {
 	Schema   string `json:"schema"`
 	Instance string `json:"instance"`
 	StateDir string `json:"state_dir"`
 }
+
+// InstallResult is a staged package, with the selection host configuration
+// needs to use it: staging selects nothing.
 type InstallResult struct {
-	Package            Package         `json:"package"`
-	Selection          SelectedPackage `json:"selection"`
-	ActivationRequired bool            `json:"explicit_trusted_selection_required"`
-	PreviousSHA256     string          `json:"previous_sha256,omitempty"`
+	Package           Package   `json:"package"`
+	Selection         Selection `json:"selection"`
+	SelectionRequired bool      `json:"explicit_trusted_selection_required"`
+	PreviousSHA256    string    `json:"previous_sha256,omitempty"`
 }
 
 const registrySchema = "p.plugin-registry/v1"
@@ -228,8 +232,10 @@ func disabled(root, digest string) error {
 	return nil
 }
 
-// LeasePackage fences the complete invocation, including already-cached Active
-// selections. Unmanaged packages retain the existing invocation revalidation.
+// LeasePackage fences a use of a managed package, such as a run of its
+// handler or a read of its files, against its removal, and refuses a
+// disabled one. An unmanaged package needs no lease: each use rechecks its
+// digest.
 func LeasePackage(path string) (func(), error) {
 	root, digest, managed, e := packageRegistry(path)
 	if e != nil {
@@ -313,6 +319,9 @@ func StagePackage(ctx context.Context, state, instance, source, approved, previo
 		if e = verifyStaged(target, approved); e != nil {
 			return result, e
 		}
+		if e = verifyStagedModes(target, pkg.Manifest); e != nil {
+			return result, e
+		}
 	} else if !errors.Is(e, os.ErrNotExist) {
 		return result, e
 	} else {
@@ -322,7 +331,7 @@ func StagePackage(ctx context.Context, state, instance, source, approved, previo
 		}
 		defer func() { _ = os.Chmod(tmp, 0700); _ = os.RemoveAll(tmp) }()
 		for name, data := range bytes {
-			f, e := os.OpenFile(filepath.Join(tmp, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0400)
+			f, e := os.OpenFile(filepath.Join(tmp, name), os.O_WRONLY|os.O_CREATE|os.O_EXCL, stagedMode(pkg.Manifest, name))
 			if e != nil {
 				return result, e
 			}
@@ -352,8 +361,45 @@ func StagePackage(ctx context.Context, state, instance, source, approved, previo
 		}
 	}
 	pkg.Path = target
-	result = InstallResult{Package: pkg, Selection: SelectedPackage{ID: pkg.Manifest.ID, Path: target, SHA256: approved, Grants: pkg.Manifest.Requests}, ActivationRequired: true, PreviousSHA256: previous}
+	result = InstallResult{Package: pkg, Selection: Selection{Path: target, SHA256: approved}, SelectionRequired: true, PreviousSHA256: previous}
 	return result, nil
+}
+
+// stagedMode is the mode of the staged file name of a package with manifest
+// m: its entry 0500, so that its owner may start it, and every other file
+// 0400. The digest covers no mode, so staging sets them.
+func stagedMode(m Manifest, name string) os.FileMode {
+	if name == m.Entry {
+		return 0500
+	}
+	return 0400
+}
+
+// verifyStagedModes checks that the package staged at path, whose manifest
+// is m, still has the modes staging gave it: the directory 0500 and each
+// file its stagedMode.
+func verifyStagedModes(path string, m Manifest) error {
+	i, e := os.Lstat(path)
+	if e != nil {
+		return e
+	}
+	if i.Mode().Perm() != 0500 {
+		return fmt.Errorf("staged package %s has mode %#o, not 0500", path, i.Mode().Perm())
+	}
+	entries, e := os.ReadDir(path)
+	if e != nil {
+		return e
+	}
+	for _, x := range entries {
+		i, e := os.Lstat(filepath.Join(path, x.Name()))
+		if e != nil {
+			return e
+		}
+		if i.Mode().Perm() != stagedMode(m, x.Name()) {
+			return fmt.Errorf("staged package file %s has mode %#o, not %#o", x.Name(), i.Mode().Perm(), stagedMode(m, x.Name()))
+		}
+	}
+	return nil
 }
 func verifyStaged(path, digest string) error {
 	if e := checkedManagedDir(path); e != nil {
@@ -363,9 +409,9 @@ func verifyStaged(path, digest string) error {
 	if e != nil {
 		return e
 	}
-	entries, e := f.ReadDir(129)
+	entries, e := f.ReadDir(maxPackageFiles + 1)
 	f.Close()
-	if e != nil || len(entries) > 128 {
+	if e != nil || len(entries) > maxPackageFiles {
 		return errors.New("invalid staged inventory")
 	}
 	for _, x := range entries {

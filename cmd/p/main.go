@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -18,6 +17,7 @@ import (
 	"github.com/lgvo/p.ai/internal/attachment"
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/daemon"
+	"github.com/lgvo/p.ai/internal/eventhandler"
 	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/tui"
 )
@@ -76,12 +76,13 @@ func run(args []string) error {
 			}
 		}
 		return printJSON(struct {
-			Version      string       `json:"version"`
-			GoVersion    string       `json:"go_version"`
-			ControlAPI   string       `json:"control_protocol"`
-			PluginAPI    string       `json:"plugin_api_version"`
-			Dependencies []dependency `json:"dependencies"`
-		}{buildVersion, runtime.Version(), api.Protocol, plugin.APIVersion, deps})
+			Version              string       `json:"version"`
+			GoVersion            string       `json:"go_version"`
+			ControlAPI           string       `json:"control_protocol"`
+			PluginSchema         string       `json:"plugin_schema"`
+			EventHandlerProtocol string       `json:"event_handler_protocol"`
+			Dependencies         []dependency `json:"dependencies"`
+		}{buildVersion, runtime.Version(), api.Protocol, plugin.ManifestSchema, eventhandler.Version, deps})
 	}
 	if args[0] == "attach-helper" && len(args) == 1 {
 		return attachment.Helper(os.NewFile(3, "attachment-carrier"))
@@ -167,11 +168,11 @@ func run(args []string) error {
 			}
 			catalog = filepath.Join(filepath.Dir(filepath.Dir(executable)), "share", "p", "plugins")
 		}
-		activation, err := plugin.DefaultActivation(catalog, args[2])
+		defaults, err := plugin.DefaultSelections(catalog, args[2])
 		if err != nil {
 			return err
 		}
-		return printJSON(activation)
+		return printJSON(defaults)
 	case "conformance":
 		if len(args) != 3 {
 			return pluginsUsage()
@@ -193,87 +194,11 @@ func run(args []string) error {
 			Packages []plugin.Package  `json:"packages"`
 			Rejected map[string]string `json:"rejected"`
 		}{found, rejected})
-	case "activate":
-		if len(args) != 3 {
-			return pluginsUsage()
-		}
-		active, err := plugin.LoadActivation(mustAbs(args[2]))
-		if err != nil {
-			return err
-		}
-		// Do not print trusted per-plugin config, such as host paths.
-		var summary []struct {
-			ID         string   `json:"id"`
-			Capability string   `json:"capability"`
-			SHA256     string   `json:"sha256"`
-			Grants     []string `json:"grants"`
-		}
-		for _, item := range active {
-			summary = append(summary, struct {
-				ID         string   `json:"id"`
-				Capability string   `json:"capability"`
-				SHA256     string   `json:"sha256"`
-				Grants     []string `json:"grants"`
-			}{item.Package.Manifest.ID, item.Package.Manifest.Capability, item.Package.SHA256, item.Grants})
-		}
-		return printJSON(summary)
-	case "plan-assets":
+	case "run-event":
 		if len(args) != 4 {
 			return pluginsUsage()
 		}
-		active, err := plugin.LoadActivation(mustAbs(args[2]))
-		if err != nil {
-			return err
-		}
-		for _, selected := range active {
-			if selected.Package.Manifest.ID == args[3] {
-				plan, err := plugin.PlanAssets(selected)
-				if err != nil {
-					return err
-				}
-				return printJSON(plan)
-			}
-		}
-		return errors.New("selected asset package not active")
-	case "emit", "run-event":
-		if len(args) != 4 {
-			return pluginsUsage()
-		}
-		active, err := plugin.LoadActivation(mustAbs(args[2]))
-		if err != nil {
-			return err
-		}
-		fd, err := syscall.Open(args[3], syscall.O_RDONLY|syscall.O_NONBLOCK|syscall.O_NOFOLLOW|syscall.O_CLOEXEC, 0)
-		if err != nil {
-			return err
-		}
-		f := os.NewFile(uintptr(fd), args[3])
-		info, err := f.Stat()
-		if err != nil {
-			f.Close()
-			return err
-		}
-		if !info.Mode().IsRegular() {
-			f.Close()
-			return errors.New("event file must be regular")
-		}
-		data, err := io.ReadAll(io.LimitReader(f, 4097))
-		f.Close()
-		if err != nil {
-			return err
-		}
-		event, err := plugin.ParseEvent(data)
-		if err != nil {
-			return err
-		}
-		result, err := plugin.DispatchEvent(context.Background(), active, event)
-		if err != nil {
-			return err
-		}
-		if args[1] == "run-event" {
-			return printJSON(result)
-		}
-		return printJSON(map[string]string{"status": result.Status, "event_id": event.ID})
+		return runEvent(mustAbs(args[2]), args[3])
 	default:
 		return pluginsUsage()
 	}
@@ -295,5 +220,5 @@ func printJSON(value any) error {
 
 // pluginsUsage is the usage error of p plugins.
 func pluginsUsage() error {
-	return usageError("usage: p plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | activate <trusted-activation.json> | emit|run-event <trusted-activation.json> <event.json> | plan-assets <trusted-activation.json> <plugin-id>")
+	return usageError("usage: p plugins install HOST_JSON PACKAGE APPROVED_SHA256 | update HOST_JSON OLD_SHA256 PACKAGE APPROVED_SHA256 | remove HOST_JSON SHA256 | defaults <absolute-event-log-path> [catalog-dir] | conformance <package-dir> | list <catalog-dir> | run-event HOST_JSON <event.json>")
 }

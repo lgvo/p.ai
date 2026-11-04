@@ -2,43 +2,27 @@ package plugin
 
 import "encoding/json"
 
+// ManifestSchema is the schema of a package's plugin.json.
+const ManifestSchema = "p.plugin/v2"
+
+// The capabilities a package may provide: an executable plugin the daemon
+// starts, or a package of files the runtime driver installs in sessions.
 const (
-	ManifestSchema   = "p.plugin/v1"
-	ActivationSchema = "p.activation/v1"
-	APIVersion       = "1.0"
+	CapabilityEventHandler = "event-handler"
+	CapabilityAgentAdapter = "agent-adapter"
 )
 
-// Manifest is package-authored data. It never grants authority by itself.
+// Manifest is package-authored data. It never grants authority by itself:
+// only trusted host configuration selects a package. An executable
+// capability names its Entry; a package of files names its Assets.
 type Manifest struct {
 	Schema      string   `json:"schema"`
 	ID          string   `json:"id"`
 	Version     string   `json:"version"`
-	API         string   `json:"api"`
-	Capability  string   `json:"capability"`
-	Placement   string   `json:"placement"`
 	Description string   `json:"description"`
-	Runtime     Runtime  `json:"runtime"`
-	Requests    []string `json:"requests"`
+	Capability  string   `json:"capability"`
+	Entry       string   `json:"entry,omitempty"`
 	Assets      []string `json:"assets,omitempty"`
-}
-
-type Runtime struct {
-	Kind  string `json:"kind"`
-	Entry string `json:"entry,omitempty"`
-}
-
-// Activation is trusted developer configuration, never read from a project repo.
-type Activation struct {
-	Schema  string            `json:"schema"`
-	Plugins []SelectedPackage `json:"plugins"`
-}
-
-type SelectedPackage struct {
-	ID     string          `json:"id"`
-	Path   string          `json:"path"`
-	SHA256 string          `json:"sha256"`
-	Grants []string        `json:"grants"`
-	Config json.RawMessage `json:"config,omitempty"`
 }
 
 type Package struct {
@@ -47,10 +31,13 @@ type Package struct {
 	Manifest Manifest `json:"manifest"`
 }
 
-type Active struct {
-	Package Package         `json:"package"`
-	Grants  []string        `json:"grants"`
-	Config  json.RawMessage `json:"config,omitempty"`
+// Selection is how trusted host configuration selects a package for one
+// role: its directory, its package digest, and, for an executable plugin,
+// the plugin's own config.
+type Selection struct {
+	Path   string          `json:"path"`
+	SHA256 string          `json:"sha256"`
+	Config json.RawMessage `json:"config,omitempty"`
 }
 
 // GitRef is one head of a project as project.branches pages it: its full ref

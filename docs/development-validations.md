@@ -532,7 +532,13 @@ envelope, redaction, ordering at the handler call boundary, and NDJSON file
 encoding. A handler write failure must produce a bounded diagnostic without
 rolling back the lifecycle action or changing authoritative state. Restart
 must not imply replay, acknowledgement, or an outbox. Repository content must
-not be able to configure handlers.
+not be able to configure handlers. The handler is an executable plugin: run
+the event-handler conformance suite against the bundled `p-event-file` and the
+example filter, and verify in the daemon (VM13) that a killed handler is
+restarted and handles later events, that one missing its deadline is
+restarted with the events that arrived meanwhile dropped and the drop logged,
+that a package changed while its handler runs is not started again, and that
+a changed digest or a loosened mode refuses the daemon's start.
 
 **Gate:** the MVP local event log and its extension interface.
 
@@ -558,7 +564,7 @@ Its Codex adapter notification remains an authentication-free event fixture;
 authenticated execution is a separate manual acceptance gate.
 
 The NixOS service selection (VM55) must exercise the actual module-generated
-service and private account-owned configuration, explicit bundled activation,
+service and private account-owned configuration, explicit bundled selections in it,
 real isolated session creation and Git, live-host continuity through daemon
 restart, stopped-state restart, Stop/Start persistence, and confirmed cleanup.
 Focused module evaluation must reject root or administrative Incus accounts,

@@ -6,10 +6,13 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/lgvo/p.ai/internal/eventfile"
 )
 
-// defaultsCatalog copies the bundled packages' sources into a catalog. VM48
-// exercises the installed packages.
+// defaultsCatalog copies the bundled packages' sources into a catalog, with
+// a stand-in for the file-log's entry, which is built. VM48 exercises the
+// installed packages.
 func defaultsCatalog(t *testing.T) string {
 	t.Helper()
 	catalog := t.TempDir()
@@ -39,58 +42,58 @@ func defaultsCatalog(t *testing.T) string {
 				t.Fatal(err)
 			}
 		}
+		if manifest.Entry != "" {
+			if err := os.WriteFile(filepath.Join(dir, manifest.Entry), []byte(handlerScript), 0700); err != nil {
+				t.Fatal(err)
+			}
+		}
 	}
 	return catalog
 }
 
-func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
+// The defaults select each bundled package by its directory and digest, as
+// host configuration does, with the file-log writing the event log named.
+func TestDefaultSelectionsPinTheBundledPackages(t *testing.T) {
 	catalog := defaultsCatalog(t)
 	log := filepath.Join(t.TempDir(), "events.ndjson")
-	selection, err := DefaultActivation(catalog, log)
+	defaults, err := DefaultSelections(catalog, log)
 	if err != nil {
 		t.Fatal(err)
-	}
-	if len(selection.Plugins) != 2 || selection.Schema != ActivationSchema {
-		t.Fatalf("incomplete composition: %+v", selection)
 	}
 	if _, err := os.Stat(log); !os.IsNotExist(err) {
 		t.Fatalf("read-only defaults created event log: %v", err)
 	}
-	data, err := json.Marshal(selection)
+	for _, c := range []struct {
+		got       Selection
+		directory string
+	}{{defaults.Events, "file-log"}, {defaults.Runtime.AgentAdapter, "codex-adapter"}} {
+		pkg, err := Conformance(filepath.Join(catalog, c.directory))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if c.got.Path != pkg.Path || c.got.SHA256 != pkg.SHA256 {
+			t.Fatalf("the %s selection is %+v, want path %s and digest %s", c.directory, c.got, pkg.Path, pkg.SHA256)
+		}
+	}
+	config, err := eventfile.ParseConfig(defaults.Events.Config)
+	if err != nil || config != (eventfile.Config{Path: log, MaxBytes: 4 << 20}) {
+		t.Fatalf("the file-log config is %s (%v), want the event log %s with 4 MiB segments", defaults.Events.Config, err, log)
+	}
+	if len(defaults.Runtime.AgentAdapter.Config) != 0 {
+		t.Fatalf("the agent adapter selection carries config %s", defaults.Runtime.AgentAdapter.Config)
+	}
+	raw, err := json.Marshal(defaults)
 	if err != nil {
 		t.Fatal(err)
 	}
-	activation := filepath.Join(t.TempDir(), "activation.json")
-	if err := os.WriteFile(activation, data, 0600); err != nil {
-		t.Fatal(err)
-	}
-	active, err := LoadActivation(activation)
-	if err != nil || len(active) != 2 {
-		t.Fatalf("defaults cannot activate: %v, %+v", err, active)
-	}
-	for _, selected := range active {
-		if len(selected.Grants) != 1 || selected.Grants[0] != selected.Package.Manifest.Requests[0] {
-			t.Fatalf("unexpected authority: %+v", selected)
-		}
-		if selected.Package.Manifest.Capability == "event-handler" {
-			var config FileLogConfig
-			if err := json.Unmarshal(selected.Config, &config); err != nil || config.Path != log {
-				t.Fatalf("log selection not bound to explicit path: %v %+v", err, config)
-			}
-		}
-	}
-	// Selection is immutable: later package edits require a new reviewed digest.
-	asset := filepath.Join(catalog, "codex-adapter", "p-codex-adapter")
-	if err := os.WriteFile(asset, []byte("#!/bin/sh\nexit 1\n"), 0600); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := LoadActivation(activation); err == nil || !strings.Contains(err.Error(), "digest mismatch") {
-		t.Fatalf("changed package accepted with old selection: %v", err)
+	var blocks map[string]map[string]any
+	if err := json.Unmarshal(raw, &blocks); err != nil || len(blocks) != 2 || blocks["events"] == nil || blocks["runtime"]["agent_adapter"] == nil {
+		t.Fatalf("the defaults are not the events and runtime.agent_adapter blocks: %s", raw)
 	}
 }
 
-func TestDefaultActivationRejectsUnsafeOrSubstitutedPackages(t *testing.T) {
-	for _, name := range []string{"relative log", "unclean log", "wrong identity", "missing asset", "symlink asset"} {
+func TestDefaultSelectionsRejectUnsafeOrSubstitutedPackages(t *testing.T) {
+	for _, name := range []string{"relative log", "unclean log", "wrong identity", "missing asset", "symlink asset", "missing entry"} {
 		t.Run(name, func(t *testing.T) {
 			catalog := defaultsCatalog(t)
 			log := filepath.Join(t.TempDir(), "events.ndjson")
@@ -119,8 +122,12 @@ func TestDefaultActivationRejectsUnsafeOrSubstitutedPackages(t *testing.T) {
 						t.Fatal(err)
 					}
 				}
+			case "missing entry":
+				if err := os.Remove(filepath.Join(catalog, "file-log", "p-event-file")); err != nil {
+					t.Fatal(err)
+				}
 			}
-			if _, err := DefaultActivation(catalog, log); err == nil {
+			if _, err := DefaultSelections(catalog, log); err == nil {
 				t.Fatal("unsafe or substituted defaults accepted")
 			}
 		})

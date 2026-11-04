@@ -43,7 +43,7 @@ channels.
 | Runtime driver | the daemon's calls of driver operations in P's terms, the driver's gate calls back, and each terminal's bytes on that terminal's own connection | client or session connections; lifecycle and policy decisions, which stay in core |
 | Bifrost HTTP (post-MVP) | approved model discovery and inference under a mandatory virtual key | P lifecycle; not an MVP session channel |
 | Incus builder | a Git bundle of one source commit, bounded Nix capabilities, commit-image publication | ambient host authority or session identity |
-| Event handler | typed, versioned reduced P events | source contents, credentials, or source-of-truth state |
+| Event handler | the hello with its own config, then typed, versioned reduced P events, over the drivers' protocol on a socket pair the daemon owns | source contents, credentials, or source-of-truth state; no reply changes P's state |
 
 Git already defines source transfer and ref integrity. JSON-RPC expresses the
 actions and events that are not source history.
@@ -642,9 +642,13 @@ session's private home and outside P's credential management.
 
 ## Event delivery
 
-P reduces authoritative state changes into typed, versioned events and invokes
-configured event handlers. The MVP handler appends redacted NDJSON to a local
-log file. Handler failure is diagnostic and never rolls back the operation
+P reduces authoritative state changes into typed, versioned events and sends
+them to the configured event handler, an executable plugin the daemon starts
+and talks to over a socket pair
+([plugin contract](plugin-contract.md#the-event-handler-protocol)). What P
+sends is all the protocol carries; the handler itself is trusted code with P's
+authority, not a confined peer. The MVP handler appends redacted NDJSON to a
+local log file. Handler failure is diagnostic and never rolls back the operation
 that emitted the event. Event delivery is not source-of-truth state, an outbox,
 an acknowledgement protocol, or a session-facing notification contract.
 Reduction semantics are owned by

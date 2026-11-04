@@ -1,5 +1,7 @@
+# The bundled packages' files from the source tree, and their notices. The
+# file-log package's entry, p-event-file, is built with P, which adds it.
 { runCommand, src }:
-runCommand "p-bundled-plugins-0.1.0" { } ''
+runCommand "p-bundled-plugins-0.2.0" { } ''
   cd ${src}
   catalog="$out/plugins"
   notices="$out/licenses"

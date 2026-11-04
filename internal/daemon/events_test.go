@@ -4,25 +4,29 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
-	"github.com/lgvo/p.ai/internal/plugin"
+	"github.com/lgvo/p.ai/internal/driverwire/launch"
+	"github.com/lgvo/p.ai/internal/eventhandler"
 )
 
-func testDelivery(ctx context.Context, dispatch func(context.Context, plugin.Event) error) *eventDelivery {
+func testDelivery(ctx context.Context, dispatch func(context.Context, eventhandler.Event) error) *eventDelivery {
 	worker, cancel := context.WithCancel(ctx)
-	d := &eventDelivery{instance: "instance", queue: make(chan plugin.Event, 64), cancel: cancel, done: make(chan struct{}), dispatch: dispatch}
+	d := &eventDelivery{instance: "instance", queue: make(chan eventhandler.Event, 64), cancel: cancel, done: make(chan struct{}), dispatch: dispatch}
 	go d.run(worker)
 	return d
 }
 
-func nextEvent(t *testing.T, ch <-chan plugin.Event) plugin.Event {
+func nextEvent(t *testing.T, ch <-chan eventhandler.Event) eventhandler.Event {
 	t.Helper()
 	select {
 	case e := <-ch:
@@ -32,14 +36,14 @@ func nextEvent(t *testing.T, ch <-chan plugin.Event) plugin.Event {
 		return e
 	case <-time.After(time.Second):
 		t.Fatal("event not delivered")
-		return plugin.Event{}
+		return eventhandler.Event{}
 	}
 }
 
 func TestEventDeliveryKeepsOrderAfterHandlerFailure(t *testing.T) {
-	got := make(chan plugin.Event, 3)
+	got := make(chan eventhandler.Event, 3)
 	calls := 0
-	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error {
+	d := testDelivery(context.Background(), func(_ context.Context, e eventhandler.Event) error {
 		got <- e
 		calls++
 		if calls == 1 {
@@ -60,7 +64,7 @@ func TestEventDeliveryBoundedDropAndShutdown(t *testing.T) {
 	entered := make(chan struct{})
 	release := make(chan struct{})
 	var once sync.Once
-	d := testDelivery(context.Background(), func(_ context.Context, _ plugin.Event) error {
+	d := testDelivery(context.Background(), func(_ context.Context, _ eventhandler.Event) error {
 		once.Do(func() { close(entered) })
 		<-release // A broken handler cannot hold daemon shutdown indefinitely.
 		return nil
@@ -81,42 +85,85 @@ func TestEventDeliveryBoundedDropAndShutdown(t *testing.T) {
 	close(release)
 }
 
-func TestTimedOutHandlerRetiresWorkerWithoutSecondInvocation(t *testing.T) {
-	entered := make(chan struct{}, 2)
-	release := make(chan struct{})
-	d := testDelivery(context.Background(), func(_ context.Context, _ plugin.Event) error {
-		entered <- struct{}{}
-		<-release
+// A handler that misses an event's deadline holds up nothing: the next
+// event goes to the handler its supervisor started again, and the missed
+// deadline is logged.
+func TestAMissedDeadlineDoesNotStopDelivery(t *testing.T) {
+	log := captureLog(t)
+	got := make(chan eventhandler.Event, 2)
+	d := testDelivery(context.Background(), func(ctx context.Context, e eventhandler.Event) error {
+		if e.Fields["condition"] == "ready" {
+			<-ctx.Done()
+			return ctx.Err()
+		}
+		got <- e
 		return nil
 	})
+	defer d.Close()
 	d.deadline = 25 * time.Millisecond
 	d.emit("session.condition_changed", "app", "session", "main", "condition", "ready")
 	d.emit("session.condition_changed", "app", "session", "main", "condition", "stopped")
-	select {
-	case <-entered:
-	case <-time.After(time.Second):
-		t.Fatal("first invocation absent")
+	if e := nextEvent(t, got); e.Fields["condition"] != "stopped" {
+		t.Fatalf("delivered %+v after the missed deadline", e)
 	}
-	select {
-	case <-d.done:
-	case <-time.After(time.Second):
-		t.Fatal("timed-out worker remained active")
+	if !strings.Contains(log(), "event handler deadline exceeded; restarting it") {
+		t.Fatalf("the log holds %q", log())
 	}
-	select {
-	case <-entered:
-		t.Fatal("second invocation started after timeout")
-	default:
-	}
-	if len(d.queue) != 1 {
-		t.Fatalf("queued events after retirement = %d, want 1", len(d.queue))
-	}
-	d.Close()
-	close(release)
 }
 
+// An event the handler is down for is dropped, and the drop is logged at
+// once, with no later event needed and even right after another diagnostic.
+func TestAnEventTheHandlerIsDownForIsDroppedAndLogged(t *testing.T) {
+	log := captureLog(t)
+	d := testDelivery(context.Background(), func(_ context.Context, e eventhandler.Event) error {
+		if e.Fields["condition"] == "creating" {
+			return errors.New("private failure details")
+		}
+		return fmt.Errorf("the event handler is not running: %w", eventhandler.ErrUnavailable)
+	})
+	defer d.Close()
+	d.emit("session.condition_changed", "app", "session", "main", "condition", "creating")
+	d.emit("session.condition_changed", "app", "session", "main", "condition", "starting")
+	logged := ""
+	for limit := time.Now().Add(time.Second); time.Now().Before(limit); time.Sleep(10 * time.Millisecond) {
+		if logged = log(); strings.Contains(logged, "event delivery dropped") {
+			break
+		}
+	}
+	if !strings.Contains(logged, "event handler delivery failed") || !strings.Contains(logged, "event delivery dropped") {
+		t.Fatalf("the log holds %q, want the failure and the drop", logged)
+	}
+	if strings.Contains(logged, "private failure details") {
+		t.Fatalf("the log holds the handler's error: %q", logged)
+	}
+}
+
+// captureLog sends the standard logger's output to a buffer until the test
+// ends and returns a function that reads it.
+func captureLog(t *testing.T) func() string {
+	t.Helper()
+	var mu sync.Mutex
+	var buf strings.Builder
+	log.SetOutput(writerFunc(func(p []byte) (int, error) {
+		mu.Lock()
+		defer mu.Unlock()
+		return buf.Write(p)
+	}))
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+	return func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return buf.String()
+	}
+}
+
+type writerFunc func([]byte) (int, error)
+
+func (f writerFunc) Write(p []byte) (int, error) { return f(p) }
+
 func TestEventReductionAndInvalidValues(t *testing.T) {
-	got := make(chan plugin.Event, 6)
-	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error { got <- e; return nil })
+	got := make(chan eventhandler.Event, 6)
+	d := testDelivery(context.Background(), func(_ context.Context, e eventhandler.Event) error { got <- e; return nil })
 	defer d.Close()
 	l := &lifecycle{events: d}
 	l.observeView(api.SessionView{UUID: "session", Project: "app", Branch: "main", Condition: "ready", PolicyCondition: "current", Diagnostic: "secret diagnostic"})
@@ -146,8 +193,8 @@ func TestEventReductionAndInvalidValues(t *testing.T) {
 }
 
 func TestProjectCreationEventWaitsForSessionCommit(t *testing.T) {
-	got := make(chan plugin.Event, 2)
-	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error { got <- e; return nil })
+	got := make(chan eventhandler.Event, 2)
+	d := testDelivery(context.Background(), func(_ context.Context, e eventhandler.Event) error { got <- e; return nil })
 	defer d.Close()
 	l := &lifecycle{events: d}
 	op := api.Operation{ID: "op", Kind: "project.create", Project: "app", SessionUUID: "session", Status: "running"}
@@ -171,8 +218,8 @@ func TestProjectCreationEventWaitsForSessionCommit(t *testing.T) {
 func TestAttachmentCallbackEmitsConfirmedCountAndClear(t *testing.T) {
 	ctx := context.Background()
 	session := control.Session{UUID: "session", Project: "app", Branch: "main"}
-	got := make(chan plugin.Event, 2)
-	d := testDelivery(ctx, func(_ context.Context, e plugin.Event) error { got <- e; return nil })
+	got := make(chan eventhandler.Event, 2)
+	d := testDelivery(ctx, func(_ context.Context, e eventhandler.Event) error { got <- e; return nil })
 	defer d.Close()
 	l := &lifecycle{events: d}
 	l.seedRecoveredSession(session, "current")
@@ -185,46 +232,34 @@ func TestAttachmentCallbackEmitsConfirmedCountAndClear(t *testing.T) {
 	}
 }
 
-func TestEventActivationRejectsWrongDigest(t *testing.T) {
-	packagePath, err := filepath.Abs("../../plugins/bundled/file-log")
-	if err != nil {
+// The daemon refuses to start with an event handler whose package differs
+// from the digest host configuration pins.
+func TestEventDeliveryRefusesAPackageOfAnotherDigest(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "handler")
+	if err := os.Mkdir(dir, 0o700); err != nil {
 		t.Fatal(err)
 	}
-	pkg, err := plugin.Conformance(packagePath)
-	if err != nil {
+	manifest := `{"schema":"p.plugin/v2","id":"example.handler","version":"1.0.0","description":"test","capability":"event-handler","entry":"handler"}`
+	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), []byte(manifest), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	dir := t.TempDir()
-	activationPath := filepath.Join(dir, "activation.json")
-	config, _ := json.Marshal(plugin.FileLogConfig{Path: filepath.Join(dir, "events.ndjson"), MaxBytes: 1024})
-	selection := plugin.Activation{Schema: plugin.ActivationSchema, Plugins: []plugin.SelectedPackage{{ID: pkg.Manifest.ID, Path: pkg.Path, SHA256: pkg.SHA256, Grants: []string{"event.file.append"}, Config: config}}}
-	write := func() {
-		data, err := json.Marshal(selection)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(activationPath, data, 0600); err != nil {
-			t.Fatal(err)
-		}
-	}
-	write()
-	selected, err := loadEventSelection(control.EventsConfig{ActivationPath: activationPath, PluginID: pkg.Manifest.ID})
-	if err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "handler"), []byte("#!/bin/sh\nexit 0\n"), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	if selected.Package.SHA256 != pkg.SHA256 {
-		t.Fatalf("selected digest = %s, want %s", selected.Package.SHA256, pkg.SHA256)
+	cfg := &control.EventsConfig{Path: dir, SHA256: strings.Repeat("0", 64), Config: json.RawMessage(`{}`)}
+	d, err := newEventDelivery(context.Background(), cfg, "instance")
+	if err == nil {
+		d.Close()
+		t.Fatal("an event handler of another digest started")
 	}
-	selection.Plugins[0].SHA256 = "0000000000000000000000000000000000000000000000000000000000000000"
-	write()
-	if _, err = loadEventSelection(control.EventsConfig{ActivationPath: activationPath, PluginID: pkg.Manifest.ID}); err == nil {
-		t.Fatal("unapproved digest activated")
+	if !errors.Is(err, launch.ErrLaunchCheck) || !strings.Contains(err.Error(), "not the pinned") {
+		t.Fatalf("newEventDelivery = %v, want the launch checks' refusal", err)
 	}
 }
 
 func TestStoppingIsAReportedCondition(t *testing.T) {
-	got := make(chan plugin.Event, 2)
-	d := testDelivery(context.Background(), func(_ context.Context, e plugin.Event) error { got <- e; return nil })
+	got := make(chan eventhandler.Event, 2)
+	d := testDelivery(context.Background(), func(_ context.Context, e eventhandler.Event) error { got <- e; return nil })
 	defer d.Close()
 	l := &lifecycle{events: d}
 	l.observeView(api.SessionView{UUID: "session", Project: "app", Branch: "main", Condition: "ready", PolicyCondition: "current"})

@@ -173,8 +173,9 @@ The strategy is working when:
   workflow change through a plugin without modifying P core;
 - developers continue adapting P through plugins instead of maintaining forks
   or private patches after the first guided example;
-- agent-authored plugins remain within user-approved capabilities and can be
-  disabled or replaced without compromising P's authoritative state;
+- agent-authored plugins run only when the user selects their exact package,
+  stay within the session's capabilities when they run inside a session, and
+  can be disabled or replaced without compromising P's authoritative state;
 - a default installation becomes operational securely without requiring the
   user to select and connect plugins manually;
 - first-party implementations can be replaced without changing authoritative

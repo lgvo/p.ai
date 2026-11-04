@@ -62,6 +62,73 @@ func TestTheFileCheckedIsTheFileStarted(t *testing.T) {
 	}
 }
 
+// A Config with Open starts the file Open returns, which applied its own
+// launch checks, instead of checking an executable at Path.
+func TestOpenGivesTheFileStarted(t *testing.T) {
+	path, digest := installed(t, fixtureDriver)
+	cfg := fixture(filepath.Join(t.TempDir(), "absent", fixtureDriver), "", nil)
+	var gotAccount uint32
+	cfg.Open = func(account uint32) (*os.File, error) {
+		gotAccount = account
+		return checkExecutable(path, digest, account)
+	}
+	s, err := Start(t.Context(), cfg)
+	if err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	defer s.Close()
+	c, ok := s.Current()
+	if !ok || c.started.PID == 0 {
+		t.Fatal("the file Open returned did not run")
+	}
+	if gotAccount != uint32(os.Geteuid()) {
+		t.Fatalf("Open got account %d, want P's account %d", gotAccount, os.Geteuid())
+	}
+	cfg.Open = func(uint32) (*os.File, error) { return nil, Refusal(path, "is refused") }
+	if s, err := Start(t.Context(), cfg); err == nil || !errors.Is(err, ErrLaunchCheck) || !strings.Contains(err.Error(), "the fixture driver failed its launch checks") {
+		if s != nil {
+			s.Close()
+		}
+		t.Fatalf("Start with an Open that refuses = %v, want its refusal", err)
+	}
+}
+
+// A driver whose restart fails its launch checks stays stopped when its
+// Config says so, even once the checks would pass again; otherwise it is
+// tried again.
+func TestARestartThatFailsItsLaunchChecks(t *testing.T) {
+	fast := Backoff{Min: 20 * time.Millisecond, Max: 40 * time.Millisecond, Stable: time.Minute}
+	for _, stop := range []bool{true, false} {
+		t.Run(fmt.Sprintf("StopAfterFailedCheck=%v", stop), func(t *testing.T) {
+			path, digest := installed(t, fixtureDriver)
+			cfg := fixture(path, digest, nil)
+			cfg.Backoff, cfg.StopAfterFailedCheck = fast, stop
+			s, err := Start(t.Context(), cfg)
+			if err != nil {
+				t.Fatalf("Start: %v", err)
+			}
+			defer s.Close()
+			first, _ := s.Current()
+			chmod(t, path, 0o770)
+			if err := syscall.Kill(first.started.PID, syscall.SIGKILL); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(300 * time.Millisecond)
+			if _, ok := s.Current(); ok {
+				t.Fatal("a driver that fails its launch checks runs")
+			}
+			chmod(t, path, 0o700)
+			restarted := false
+			for limit := time.Now().Add(time.Second); time.Now().Before(limit) && !restarted; time.Sleep(20 * time.Millisecond) {
+				_, restarted = s.Current()
+			}
+			if restarted == stop {
+				t.Fatalf("restarted once its checks pass again: %v, want %v", restarted, !stop)
+			}
+		})
+	}
+}
+
 func TestTheBackoffDoublesUpToItsBound(t *testing.T) {
 	b := Backoff{Min: 100 * time.Millisecond, Max: time.Second}
 	var got []time.Duration

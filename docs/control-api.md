@@ -267,19 +267,22 @@ indexed. VM scenarios 25 and 26 cover commit images in the daemon.
 Without `runtime.environment`, sessions use the pinned base image and the
 runtime kit clones the workspace from P at first start.
 
-An optional `runtime.agent_adapter` object selects one session asset package:
+An optional `runtime.agent_adapter` object selects the agent adapter package
+by its absolute clean directory and its package digest
+([plugin contract](plugin-contract.md#the-agent-adapter)):
 
 ```json
-{"activation_path":"/absolute/private/agent-activation.json","plugin_id":"org.p.codex-adapter"}
+{"path":"/absolute/share/p/plugins/codex-adapter","sha256":"<package digest>"}
 ```
 
-The named package must have the `agent-adapter` capability, asset runtime,
-exact `agent.status.report` grant, and empty configuration. The activation file
-uses the same private host-file checks as other selections. Creation pins the
-selected package ID and digest; Retry requires that same selection.
-Stopped assembly installs its verified asset at `/usr/libexec/p/codex-adapter`.
-Repository contents and session requests cannot select the adapter. Omitting
-the object installs no adapter.
+It takes no config. The package must have the `agent-adapter` capability; the
+daemon reads it at start and refuses to start if its digest differs. Creation
+pins the selected package ID and digest; Retry requires that same selection.
+Core hands the verified file to the runtime driver, and the Incus driver's
+stopped assembly installs it at `/usr/libexec/p/codex-adapter`. Repository
+contents and session requests cannot select the adapter. Omitting the object
+installs no adapter. `p plugins defaults` prints this block for the bundled
+Codex adapter.
 
 The bundled adapter targets Codex `0.151.0`. Authentication-free fixture checks
 and authenticated acceptance are separate gates; see
@@ -287,23 +290,27 @@ and authenticated acceptance are separate gates; see
 P never obtains Codex credentials from the host. The user initializes and
 authenticates inside each session's private home.
 
-An optional trusted `events` object selects one activated `event-handler`
-package for daemon delivery:
+An optional trusted `events` object selects the event handler: an
+`event-handler` package by its absolute clean directory and its package
+digest, with the handler's own `config`, which only the handler reads:
 
 ```json
-{"schema":"p.host/v1","state_dir":"/absolute/private/p-state","events":{"activation_path":"/absolute/private/events-activation.json","plugin_id":"org.p.filelog"}}
+{"schema":"p.host/v1","state_dir":"/absolute/private/p-state","events":{"path":"/absolute/share/p/plugins/file-log","sha256":"<package digest>","config":{"path":"/absolute/private/events.ndjson","max_bytes":4194304}}}
 ```
 
-The activation file follows the same private host-file and trusted-ancestor
-checks as the Git and runtime selections. The named package must have the
-`event-handler` capability and exact `event.file.append` grant. Its digest is
-checked on each invocation. The daemon queues at most 64 reduced events and
-delivers them with one worker and a two-second invocation deadline. If a native
-filesystem call remains blocked at that deadline, the worker retires and drops
-its remaining queue; at most that one call can remain in flight. Its final file
-effect may be unknown. Full queues, handler failures, and shutdown drop events
-without changing committed session or operation state. There is no replay or
-retry after restart.
+The daemon starts the handler at its start, after the
+[launch checks](plugin-contract.md#launch-checks) of its package and its
+digest, and refuses to start if the handler does not: its launch checks fail,
+or its hello is refused. An `activation_path` or `plugin_id` field is unknown
+and refuses the file. The daemon queues at most 64 reduced events and delivers
+them one at a time over the
+[event-handler protocol](plugin-contract.md#the-event-handler-protocol), each
+with a two-second deadline. A handler that exits or misses a deadline is
+killed and started again after fresh launch checks; events that arrive while
+it is down are dropped and counted, and the drop is logged. A restart whose
+launch checks fail leaves the handler stopped until the daemon restarts. Full
+queues, handler failures, and shutdown drop events without changing committed
+session or operation state. There is no replay or retry after restart.
 Committed status reports and attachment presence transitions enter the queue
 in reducer order. The queue is best effort and may drop either event when full.
 
