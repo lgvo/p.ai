@@ -51,6 +51,26 @@ let
     subPackages = [ "tests/integration/cmd/runtime-fixture" ];
     doCheck = false;
   };
+  # The Incus driver owns the session host's unit. A scenario that holds a
+  # session's start before host readiness runs a driver, or the in-process
+  # runtime fixture, built with a test-only gate in that unit: a bounded
+  # ExecStartPost that waits until the scenario pushes /etc/p/test-release
+  # into the guest.
+  gateSessionHost = timeout: ''
+    unit=internal/runtimedriver/incus/host/p-interactive.service
+    sed -i '/^\[Install\]$/i ExecStartPost=/run/current-system/sw/bin/timeout ${toString timeout} /run/current-system/sw/bin/bash -c "until test -e /etc/p/test-release; do sleep 0.1; done"' "$unit"
+    grep -q /etc/p/test-release "$unit"
+  '';
+  gatedRuntimeDriver = pPackage.overrideAttrs (old: {
+    subPackages = [ "cmd/p-runtime-incus" ];
+    doCheck = false;
+    postConfigure = (old.postConfigure or "") + gateSessionHost 20;
+  });
+  gatedRuntimeFixture = pPackage.overrideAttrs (old: {
+    subPackages = [ "tests/integration/cmd/runtime-fixture" ];
+    doCheck = false;
+    postConfigure = (old.postConfigure or "") + gateSessionHost 90;
+  });
   builderFixture = pPackage.overrideAttrs {
     subPackages = [ "tests/integration/cmd/builder-fixture" ];
     doCheck = false;
@@ -166,6 +186,8 @@ let
       export P_TEST_WASI_FILTER=${wasiFilter}
       export P_TEST_WASI_HOSTILE=${wasiHostile}
       export P_TEST_RUNTIME_IMAGE_FILE=${runtimeIdentity}
+      export P_TEST_GATED_RUNTIME_DRIVER=${gatedRuntimeDriver}/bin/p-runtime-incus
+      export P_TEST_GATED_RUNTIME_FIXTURE=${gatedRuntimeFixture}/bin/runtime-fixture
       export P_TEST_INCUS_WRAPPER=${publishCountIncusWrapper}/bin/p-incus-publish-count-wrapper
       export P_TEST_NIX_FIXTURE=${nixActivationFixture}
       export P_TEST_SELECTED_STEPS=${nixpkgs.lib.escapeShellArg (nixpkgs.lib.concatStringsSep "\n" selectedSteps)}
@@ -236,6 +258,8 @@ in
     originFixture
     nixActivationFixture
     runtimeFixture
+    gatedRuntimeDriver
+    gatedRuntimeFixture
     builderFixture
     wasiFilter
     wasiHostile

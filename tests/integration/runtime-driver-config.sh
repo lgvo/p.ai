@@ -1,13 +1,14 @@
 # shellcheck shell=bash
 # Print the runtime.driver object of a step's host configuration: the packaged
-# p-runtime-incus, pinned by its resolved path (the launch checks refuse a
-# symbolic link) and its SHA-256, configured for the VM's confined Incus with
-# the Incus binary given as the only argument. The driver runs with an empty
+# p-runtime-incus, or the driver executable given as the optional second
+# argument, pinned by its resolved path (the launch checks refuse a symbolic
+# link) and its SHA-256, configured for the VM's confined Incus with the
+# Incus binary given as the first argument. The driver runs with an empty
 # environment, so its config names the journalctl found on this PATH.
 set -euo pipefail
-test "$#" -eq 1
+test "$#" -eq 1 || test "$#" -eq 2
 incus_binary=$1
-executable=$(command -v p-runtime-incus)
+executable=${2:-$(command -v p-runtime-incus)}
 driver=$(readlink -f -- "$executable")
 digest=$(sha256sum -- "$driver" | cut -d' ' -f1)
 journalctl=$(command -v journalctl)

@@ -86,7 +86,7 @@ func retainedFixture(t *testing.T) (l *lifecycle, store *control.Store, repo, ti
 // holdBranch records a creation that holds branch of project app.
 func holdBranch(t *testing.T, store *control.Store, branch string) {
 	t.Helper()
-	selection := control.CreationSelection{HostID: "fixture", HostSHA256: strings.Repeat("b", 64)}
+	selection := control.CreationSelection{}
 	_, _, err := store.BeginSessionCreate(context.Background(), control.ReserveSessionRequest{Key: "hold-" + branch, Project: "app", Branch: branch, Choice: "existing"}, strings.Repeat("d", 64), selection,
 		func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 			return strings.Repeat("e", 40), true, nil

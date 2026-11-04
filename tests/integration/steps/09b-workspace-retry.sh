@@ -28,13 +28,6 @@ on_error() {
 }
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
-activate_package() {
-  local package="$1" target="$2" grant="$3" digest id
-  digest=$(p plugins conformance "$package" | jq -er '.sha256')
-  id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
-}
 
 # A gated copy of the driver's Git SSH wrapper. Git init and remote
 # configuration finish; the first SSH fetch then waits at the wrapper before
@@ -51,7 +44,6 @@ while [ ! -e /etc/p/test-init-release ]; do
 done
 exec /usr/bin/ssh -F /etc/p/git/ssh_config "$@"
 SH
-activate_package "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host.json" session.asset.install
 
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
@@ -92,9 +84,9 @@ test -S "$endpoint/session.sock" && test -S "$endpoint/git.sock"
 jq -n --arg instance 11111111-1111-4111-8111-111111111111 \
   --arg session "$session" --arg image "$fingerprint" --arg endpoints "$endpoint" \
   --arg commit "$initial_oid" --arg key "$step_dir/session" \
-  --arg server "$step_dir/server.pub" --arg host "$step_dir/host.json" \
+  --arg server "$step_dir/server.pub" \
   '{instance_uuid:$instance,session_uuid:$session,project:"retry",branch:"main",commit:$commit,
-    image:$image,endpoints:$endpoints,host_activation:$host,
+    image:$image,endpoints:$endpoints,
     git_key_file:$key,git_host_key_file:$server}' \
   > "$step_dir/session.json"
 spec_digest=$(sha256sum "$step_dir/session.json" | cut -d' ' -f1)

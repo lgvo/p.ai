@@ -458,7 +458,7 @@ systemd starts `p-interactive.service`, the unit then:
 1. establishes the fixed user, `HOME`, workspace, and P paths;
 2. applies the captured devShell activation;
 3. runs the shell hook inside the session;
-4. starts the configured persistent host (tmux by default); and
+4. starts the persistent host (the Incus driver's tmux); and
 5. keeps that host under systemd supervision.
 
 Activation or host-start failure is captured in the container journal and

@@ -92,7 +92,8 @@ func TestGuestPlanConfiguresTheRuntimeKitForTheSession(t *testing.T) {
 			if err := json.Unmarshal(files["/etc/p/workspace.json"].data, &workspace); err != nil || workspace != tc.workspace {
 				t.Fatalf("workspace config %+v %v, want %+v", workspace, err, tc.workspace)
 			}
-			want := []string{"/etc/p/session.json", "/etc/p/workspace.json", "/etc/p/git/ssh_config", "/etc/p/git/known_hosts", "/etc/p/git/identity", "/etc/p/assets/p-git-ssh"}
+			want := []string{"/etc/p/assets/p-session.target", "/etc/p/assets/p-interactive.service", "/etc/p/assets/p-attach",
+				"/etc/p/session.json", "/etc/p/workspace.json", "/etc/p/git/ssh_config", "/etc/p/git/known_hosts", "/etc/p/git/identity", "/etc/p/assets/p-git-ssh"}
 			for _, a := range s.Assets {
 				path := "/etc/p/assets/" + a.Role
 				if f := files[path]; f.typ != "file" || f.uid != 0 || f.gid != 0 || uint32(f.mode) != a.Mode || !bytes.Equal(f.data, a.Data) {
@@ -137,6 +138,35 @@ func TestGuestPlanInstallsTheSessionsGitIdentity(t *testing.T) {
 	}
 	if _, err := guestPlanFor(testSessionSpec(t), &runtimedriver.Shell{Selection: runtimedriver.SelectionDevShell}, nil); err == nil {
 		t.Fatal("a devShell image without its activation material planned")
+	}
+}
+
+// Every session runs the driver's own session host: its systemd target, its
+// unit and its attach program, the files in host/, installed root-owned
+// where the image links them. Core hands in no host files.
+func TestGuestPlanInstallsTheDriversSessionHost(t *testing.T) {
+	s := testSessionSpec(t)
+	s.Assets = nil
+	plan, err := guestPlanFor(s, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	files := map[string]guestFile{}
+	for _, f := range plan.files {
+		files[f.path] = f.file
+	}
+	for _, host := range []struct {
+		name string
+		mode int
+	}{{"p-session.target", 0644}, {"p-interactive.service", 0644}, {"p-attach", 0555}} {
+		want, err := os.ReadFile(filepath.Join("host", host.name))
+		if err != nil {
+			t.Fatal(err)
+		}
+		f := files["/etc/p/assets/"+host.name]
+		if f.typ != "file" || f.uid != 0 || f.gid != 0 || f.mode != host.mode || !bytes.Equal(f.data, want) {
+			t.Fatalf("%s installed as %+v", host.name, f)
+		}
 	}
 }
 
@@ -224,15 +254,18 @@ func TestGuestPlanAcceptsAnOpenSSHSessionKey(t *testing.T) {
 	}
 }
 
+// The agent adapter is the one asset core may hand in, once, unchanged; a
+// session host file or the Git SSH wrapper are the driver's own.
 func TestGuestPlanChecksTheSessionAssetsByRole(t *testing.T) {
+	adapter := func() runtimedriver.Asset { return testAsset("p-codex-adapter", 0555, nil) }
 	for name, edit := range map[string]func(*runtimedriver.Session){
-		"missing role":   func(s *runtimedriver.Session) { s.Assets = s.Assets[1:] },
-		"duplicate role": func(s *runtimedriver.Session) { s.Assets = append(s.Assets, s.Assets[0]) },
-		"unknown role":   func(s *runtimedriver.Session) { s.Assets[0].Role = "p-shell" },
+		"duplicate role":    func(s *runtimedriver.Session) { s.Assets = append(s.Assets, adapter()) },
+		"unknown role":      func(s *runtimedriver.Session) { s.Assets[0].Role = "p-shell" },
+		"session host file": func(s *runtimedriver.Session) { s.Assets = append(s.Assets, testAsset("p-attach", 0555, nil)) },
 		"Git SSH wrapper": func(s *runtimedriver.Session) {
 			s.Assets = append(s.Assets, testAsset("p-git-ssh", 0555, []byte("#!/bin/sh\nexec /bin/sh\n")))
 		},
-		"changed mode":  func(s *runtimedriver.Session) { s.Assets[2].Mode = 0755 },
+		"changed mode":  func(s *runtimedriver.Session) { s.Assets[0].Mode = 0755 },
 		"changed bytes": func(s *runtimedriver.Session) { s.Assets[0].Data = []byte("tampered") },
 		"empty": func(s *runtimedriver.Session) {
 			s.Assets[0].Data, s.Assets[0].SHA256 = nil, hex.EncodeToString(sha256.New().Sum(nil))
@@ -244,13 +277,16 @@ func TestGuestPlanChecksTheSessionAssetsByRole(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			s := testSessionSpec(t)
+			s.Assets = []runtimedriver.Asset{adapter()}
 			edit(&s)
 			if _, err := guestPlanFor(s, nil, nil); err == nil {
 				t.Fatal("refused spec planned")
 			}
 		})
 	}
-	if _, err := guestPlanFor(testSessionSpec(t), nil, nil); err != nil {
+	s := testSessionSpec(t)
+	s.Assets = []runtimedriver.Asset{adapter()}
+	if _, err := guestPlanFor(s, nil, nil); err != nil {
 		t.Fatalf("valid spec refused: %v", err)
 	}
 }

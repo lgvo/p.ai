@@ -50,7 +50,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(selection.Plugins) != 3 || selection.Schema != ActivationSchema {
+	if len(selection.Plugins) != 2 || selection.Schema != ActivationSchema {
 		t.Fatalf("incomplete composition: %+v", selection)
 	}
 	if _, err := os.Stat(log); !os.IsNotExist(err) {
@@ -65,7 +65,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 		t.Fatal(err)
 	}
 	active, err := LoadActivation(activation)
-	if err != nil || len(active) != 3 {
+	if err != nil || len(active) != 2 {
 		t.Fatalf("defaults cannot activate: %v, %+v", err, active)
 	}
 	for _, selected := range active {
@@ -80,7 +80,7 @@ func TestDefaultActivationReadOnlyAndPinned(t *testing.T) {
 		}
 	}
 	// Selection is immutable: later package edits require a new reviewed digest.
-	asset := filepath.Join(catalog, "tmux-host", "p-attach")
+	asset := filepath.Join(catalog, "codex-adapter", "p-codex-adapter")
 	if err := os.WriteFile(asset, []byte("#!/bin/sh\nexit 1\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
@@ -94,19 +94,19 @@ func TestDefaultActivationRejectsUnsafeOrSubstitutedPackages(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			catalog := defaultsCatalog(t)
 			log := filepath.Join(t.TempDir(), "events.ndjson")
-			asset := filepath.Join(catalog, "tmux-host", "p-attach")
+			asset := filepath.Join(catalog, "codex-adapter", "p-codex-adapter")
 			switch name {
 			case "relative log":
 				log = "events.ndjson"
 			case "unclean log":
 				log = "/tmp/example/../events.ndjson"
 			case "wrong identity":
-				path := filepath.Join(catalog, "tmux-host", "plugin.json")
+				path := filepath.Join(catalog, "codex-adapter", "plugin.json")
 				data, err := os.ReadFile(path)
 				if err != nil {
 					t.Fatal(err)
 				}
-				data = []byte(strings.Replace(string(data), "org.p.tmux-host", "org.p.alternate.tmux-host", 1))
+				data = []byte(strings.Replace(string(data), "org.p.codex-adapter", "org.p.alternate.codex-adapter", 1))
 				if err := os.WriteFile(path, data, 0600); err != nil {
 					t.Fatal(err)
 				}

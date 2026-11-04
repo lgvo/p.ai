@@ -61,7 +61,7 @@ never enter RPC.
 An optional trusted `runtime` object activates the lifecycle subset. It
 requires Git configuration. Before serving RPC the daemon has the runtime
 driver prove its boundary (for Incus, the confined project) and verifies the
-selected package digests. `runtime.project_policies`
+selected agent adapter's package digest. `runtime.project_policies`
 selects a policy only by the exact complete P project path. An absent path has
 no fallback and cannot admit new project or session creation. The older
 `runtime.project_policy` remains a singleton compatibility mode only when the
@@ -74,8 +74,6 @@ cannot add networking, mounts, commands, or other grants.
   "state_dir": "/absolute/private/p-state",
   "git": {"listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}},
   "runtime": {
-    "activation_path": "/absolute/private/runtime-activation.json",
-    "host_plugin_id": "org.p.tmux-host",
     "driver": {
       "path": "/nix/store/<pinned-p>/bin/p-runtime-incus",
       "sha256": "<64 lowercase hex digits>",
@@ -123,6 +121,9 @@ the user socket, so no grant can reach it. The hello gives the driver `config`
 and the settings P owns that the driver needs (the P instance ID,
 `endpoint_prefix`, `disk_source_ceilings`, the builder storage pool and
 `public_egress`); the daemon then reaches the runtime only through the driver.
+The driver runs each session's command in its own session host, for Incus the
+tmux host of [runtime isolation](runtime-isolation.md#attachment); host
+configuration selects no host package.
 
 The exact-path form replaces the single `project_policy` field with, for
 example:

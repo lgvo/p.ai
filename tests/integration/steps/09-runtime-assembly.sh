@@ -1,7 +1,7 @@
 # shellcheck shell=bash
-# Test-only sessions through the production Incus runtime driver and its
-# confined socket: create installs the selected guest files, start waits for
-# the session host. Public project/session lifecycle is a later step.
+# Test-only sessions through the Incus runtime driver, its session host unit
+# gated, and its confined socket: create installs the guest files, start waits
+# for the session host. Public project/session lifecycle is a later step.
 set -E
 umask 077
 step_dir="$P_TEST_TMP/step-09"
@@ -35,22 +35,6 @@ expect_failure() {
     return 1
   fi
 }
-activate_package() {
-  local package="$1" target="$2" grant="$3" digest id
-  digest=$(p plugins conformance "$package" | jq -er '.sha256')
-  id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
-}
-# Hold this selected service in systemd's startup state until the scenario
-# observes Running without host readiness. The gate is bounded and test-only;
-# the changed bytes are pinned by the normal selected-package plan.
-mkdir -m 0700 "$step_dir/host-package"
-cp "$P_TEST_SOURCE/plugins/bundled/tmux-host/"* "$step_dir/host-package/"
-sed '/^\[Install\]$/i ExecStartPost=/run/current-system/sw/bin/timeout 90 /run/current-system/sw/bin/bash -c "until test -e /etc/p/test-release; do sleep 0.1; done"' \
-  "$step_dir/host-package/p-interactive.service" > "$step_dir/service-gated"
-mv "$step_dir/service-gated" "$step_dir/host-package/p-interactive.service"
-activate_package "$step_dir/host-package" "$step_dir/host.json" session.asset.install
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/server"
@@ -92,12 +76,15 @@ session_file() {
   jq -n --arg instance 11111111-1111-4111-8111-111111111111 \
     --arg session "$session" --arg image "$fingerprint" --arg endpoints "$endpoint_prefix/$name" \
     --arg branch "$branch" --arg commit "$commit" --arg key "$step_dir/$key" \
-    --arg server "$step_dir/server.pub" --arg host "$step_dir/host.json" \
+    --arg server "$step_dir/server.pub" \
     '{instance_uuid:$instance,session_uuid:$session,project:"assembly",branch:$branch,commit:$commit,
-      image:$image,endpoints:$endpoints,host_activation:$host,
+      image:$image,endpoints:$endpoints,
       git_key_file:$key,git_host_key_file:$server}' > "$target"
 }
-runtime() { timeout 190 runtime-fixture "$@"; }
+# The gated runtime fixture's host unit holds the session host in systemd's
+# startup state until the scenario observes Running without host readiness
+# and pushes /etc/p/test-release; the gate is bounded and test-only.
+runtime() { timeout 190 "$P_TEST_GATED_RUNTIME_FIXTURE" "$@"; }
 exec_p() {
   local name="$1"
   shift
@@ -152,7 +139,7 @@ expect_failure runtime create "$step_dir/wrong-workspace.json" "$blank_at"
 inc file pull "$blank_name/etc/p/workspace.json" "$step_dir/workspace-after-refusal.json"
 cmp "$step_dir/workspace-before-refusal.json" "$step_dir/workspace-after-refusal.json"
 
-# The selected unit gate makes Incus Running observable before host
+# The host unit's gate makes Incus Running observable before host
 # readiness, and Start returns only once the released host is ready.
 runtime start "$blank_spec" > "$step_dir/blank-start.json" 2> "$step_dir/start.err" &
 start_pid=$!
@@ -217,7 +204,7 @@ inc file pull "$work_name/etc/p/workspace.json" "$step_dir/work-workspace-before
 expect_failure runtime create "$step_dir/wrong-source.json" "$work_at"
 inc file pull "$work_name/etc/p/workspace.json" "$step_dir/work-workspace-after-refusal.json"
 cmp "$step_dir/work-workspace-before-refusal.json" "$step_dir/work-workspace-after-refusal.json"
-# Released in advance, the selected unit gate lets the first start finish.
+# Released in advance, the host unit's gate lets the first start finish.
 inc file push --uid 0 --gid 0 --mode 0644 "$step_dir/test-release" "$work_name/etc/p/test-release"
 runtime start "$work_spec" | jq -e --arg at "$work_at" '.state=="running" and .host.ready and .incarnation==$at' >/dev/null
 test "$(exec_p "$work_name" git rev-parse HEAD)" = "$main_oid"

@@ -72,7 +72,7 @@ func TestManagedDaemonLifetimeLeaseAndForeignInstanceRefusal(t *testing.T) {
 }
 
 func TestManagedAssetPlanBindsExactInstanceLeasedPath(t *testing.T) {
-	source, e := filepath.Abs("../../plugins/bundled/tmux-host")
+	source, e := filepath.Abs("../../plugins/bundled/codex-adapter")
 	if e != nil {
 		t.Fatal(e)
 	}

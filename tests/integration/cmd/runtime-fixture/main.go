@@ -13,7 +13,6 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/incus"
 )
@@ -23,7 +22,7 @@ const usage = "usage: runtime-fixture inspect|create|start|stop|delete|hostlog <
 	"  hostlog prints the session host's last words, at the incarnation when one is given"
 
 // sessionFile is a scenario's session: the driver's session spec, with the
-// selected host package and the keys as files.
+// keys as files.
 type sessionFile struct {
 	Instance       string `json:"instance_uuid"` // the P instance whose labels the runtime carries
 	Session        string `json:"session_uuid"`
@@ -32,7 +31,6 @@ type sessionFile struct {
 	Commit         string `json:"commit,omitempty"` // empty for an unborn branch
 	Image          string `json:"image"`
 	Endpoints      string `json:"endpoints"`
-	HostActivation string `json:"host_activation"`
 	GitKeyFile     string `json:"git_key_file"`
 	GitHostKeyFile string `json:"git_host_key_file"`
 	Socket         string `json:"socket,omitempty"` // default: the confined user socket
@@ -160,7 +158,7 @@ func readSessionFile(path string) (sessionFile, error) {
 	if dec.Decode(new(any)) != io.EOF {
 		return in, errors.New("trailing session file input")
 	}
-	for _, required := range []string{in.Instance, in.Session, in.Project, in.Branch, in.Image, in.Endpoints, in.HostActivation, in.GitKeyFile, in.GitHostKeyFile} {
+	for _, required := range []string{in.Instance, in.Session, in.Project, in.Branch, in.Image, in.Endpoints, in.GitKeyFile, in.GitHostKeyFile} {
 		if required == "" {
 			return in, errors.New("session file incomplete")
 		}
@@ -171,14 +169,9 @@ func readSessionFile(path string) (sessionFile, error) {
 	return in, nil
 }
 
-// spec is the driver's session spec: the assets of the selected host package
-// by role, the session's Git key, and the pinned host key of P's Git
-// endpoint.
+// spec is the driver's session spec: the session's Git key and the pinned
+// host key of P's Git endpoint. It has no agent adapter.
 func (in sessionFile) spec() (runtimedriver.Session, error) {
-	host, err := assets(in.HostActivation, "interactive-host")
-	if err != nil {
-		return runtimedriver.Session{}, err
-	}
 	key, err := os.ReadFile(in.GitKeyFile)
 	if err != nil {
 		return runtimedriver.Session{}, err
@@ -195,29 +188,7 @@ func (in sessionFile) spec() (runtimedriver.Session, error) {
 		Workspace: runtimedriver.Workspace{Repository: in.Project, Branch: in.Branch, Commit: in.Commit},
 		GitKey:    key, GitHostKey: string(hostKey),
 		Endpoints: in.Endpoints,
-		Assets:    host,
 	}, nil
-}
-
-// assets are the files of the one package an activation selects for
-// capability, as its asset plan pins them.
-func assets(activation, capability string) ([]runtimedriver.Asset, error) {
-	selected, err := plugin.LoadActivation(activation)
-	if err != nil {
-		return nil, err
-	}
-	if len(selected) != 1 || selected[0].Package.Manifest.Capability != capability {
-		return nil, fmt.Errorf("one %s package required", capability)
-	}
-	plan, err := plugin.PlanAssets(selected[0])
-	if err != nil {
-		return nil, err
-	}
-	files := make([]runtimedriver.Asset, 0, len(plan.Files))
-	for _, f := range plan.Files {
-		files = append(files, runtimedriver.Asset{Role: f.Role, Mode: f.Mode, Data: f.Data, SHA256: f.SHA256})
-	}
-	return files, nil
 }
 
 // deleteSession deletes the session's runtime at incarnation at through the

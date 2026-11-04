@@ -38,8 +38,6 @@ type EventsConfig struct {
 // RuntimeConfig is trusted instance configuration. Session requests cannot
 // supply or widen these values.
 type RuntimeConfig struct {
-	ActivationPath       string                   `json:"activation_path"`
-	HostPluginID         string                   `json:"host_plugin_id"`
 	Driver               RuntimeDriverConfig      `json:"driver"`
 	EndpointPrefix       string                   `json:"endpoint_prefix"`
 	DiskSourceCeilings   []string                 `json:"disk_source_ceilings"`
@@ -351,18 +349,16 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 		if singleton == mapped || mapped && (len(mapValue) == 0 || mapValue[0] != '{') {
 			return cfg, errors.New("runtime requires exactly one project policy mode")
 		}
-		if cfg.Git == nil || r.HostPluginID == "" ||
+		if cfg.Git == nil ||
 			len(r.BaseImageFingerprint) != 64 || len(r.DiskSourceCeilings) == 0 || len(r.DiskSourceCeilings) > 8 ||
 			mapped && r.ProjectPolicies == nil {
-			return cfg, errors.New("runtime requires Git, pinned plugins/image and a confined baseline policy")
+			return cfg, errors.New("runtime requires Git, a pinned image and a confined baseline policy")
 		}
 		if err := r.Driver.validate(); err != nil {
 			return cfg, err
 		}
-		for _, value := range []string{r.ActivationPath, r.EndpointPrefix} {
-			if err := checkPath(value); err != nil {
-				return cfg, fmt.Errorf("runtime path: %w", err)
-			}
+		if err := checkPath(r.EndpointPrefix); err != nil {
+			return cfg, fmt.Errorf("runtime path: %w", err)
 		}
 		for _, value := range r.DiskSourceCeilings {
 			if err := checkPath(value); err != nil {

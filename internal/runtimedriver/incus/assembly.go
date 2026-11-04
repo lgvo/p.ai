@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
@@ -33,13 +34,33 @@ type fileAPI interface {
 	put(context.Context, string, guestFile) error
 }
 
-// guestAssets are where the guest's systemd host and the agent adapter find
-// each asset role, with the mode each file gets.
+// The session host every session runs is the driver's own: the systemd
+// target and unit in which the runtime kit prepares the session and runs its
+// command in tmux, and the program a terminal runs to attach to it.
+var (
+	//go:embed host/p-session.target
+	hostTarget string
+	//go:embed host/p-interactive.service
+	hostUnit string
+	//go:embed host/p-attach
+	hostAttach string
+)
+
+// hostFiles are the session host's guest files, root-owned in /etc/p/assets,
+// from where the image links the target and unit into systemd's unit tree
+// and the attach program to /usr/libexec/p/attach.
+func hostFiles() []guestInstall {
+	return []guestInstall{
+		{"/etc/p/assets/p-session.target", guestFile{"file", 0, 0, 0644, []byte(hostTarget)}},
+		{"/etc/p/assets/p-interactive.service", guestFile{"file", 0, 0, 0644, []byte(hostUnit)}},
+		{"/etc/p/assets/p-attach", guestFile{"file", 0, 0, 0555, []byte(hostAttach)}},
+	}
+}
+
+// guestAssets are where the guest finds each asset role core may hand in, the
+// agent adapter alone, with the mode its file gets.
 var guestAssets = map[string]guestInstall{
-	"p-session.target":      {"/etc/p/assets/p-session.target", guestFile{"file", 0, 0, 0644, nil}},
-	"p-interactive.service": {"/etc/p/assets/p-interactive.service", guestFile{"file", 0, 0, 0644, nil}},
-	"p-attach":              {"/etc/p/assets/p-attach", guestFile{"file", 0, 0, 0555, nil}},
-	"p-codex-adapter":       {"/etc/p/assets/p-codex-adapter", guestFile{"file", 0, 0, 0555, nil}},
+	"p-codex-adapter": {"/etc/p/assets/p-codex-adapter", guestFile{"file", 0, 0, 0555, nil}},
 }
 
 // assetInstall checks one selected asset file against its role's mode and

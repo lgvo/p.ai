@@ -116,11 +116,8 @@ func (c HostConfig) PluginActivationPaths() []string {
 	if c.Events != nil {
 		paths = append(paths, c.Events.ActivationPath)
 	}
-	if c.Runtime != nil {
-		paths = append(paths, c.Runtime.ActivationPath)
-		if c.Runtime.AgentAdapter != nil {
-			paths = append(paths, c.Runtime.AgentAdapter.ActivationPath)
-		}
+	if c.Runtime != nil && c.Runtime.AgentAdapter != nil {
+		paths = append(paths, c.Runtime.AgentAdapter.ActivationPath)
 	}
 	return paths
 }

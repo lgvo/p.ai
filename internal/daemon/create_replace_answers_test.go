@@ -28,7 +28,7 @@ func failedCreationFixture(t *testing.T) (*lifecycle, api.Operation) {
 	if err = store.CreateProject(ctx, "app", policy); err != nil {
 		t.Fatal(err)
 	}
-	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
+	selection := control.CreationSelection{}
 	op, _, err := store.BeginSessionCreate(ctx, control.ReserveSessionRequest{Key: "create-work", Project: "app", Branch: "work", Choice: "existing"}, strings.Repeat("d", 64), selection,
 		func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 			return strings.Repeat("e", 40), true, nil

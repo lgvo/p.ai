@@ -54,7 +54,6 @@ The v1 capability and placement pairs are:
 
 | Capability | Placement | Declared broker grant |
 |---|---|---|
-| `interactive-host` | `internal-session` | `session.asset.install` |
 | `event-handler` | `host` | `event.file.append` |
 | `agent-adapter` | `internal-session` | `agent.status.report` |
 
@@ -68,9 +67,11 @@ requests exactly; adding a grant requires manifest and trusted-config review.
 current declarative operation is `event.file.append`; it is available only to
 an `event-handler`. `wasi-command` names a WebAssembly entry in the package;
 its implemented method is the event handler's, described below. Asset packages
-carry fixed files for the session's systemd/attach or adapter contract.
-Core validates activation and typed asset plans before installing their fixed
-paths in an owned, stopped session through the confined runtime adapter.
+carry the agent adapter's fixed file. Core validates activation and the typed
+asset plan, then hands the file to the runtime driver, which installs it in an
+owned, stopped session. The session host's systemd units and attach program
+are no package: they are the Incus driver's own files
+([runtime isolation](runtime-isolation.md#attachment)).
 
 WASI is the selected executable boundary. The runner must instantiate a
 WebAssembly module with **no preopened directories, inherited environment,
@@ -134,40 +135,37 @@ example appends only ready-condition events.
 
 ### Session asset plans
 
-An `interactive-host` asset package must contain exactly `p-session.target`,
-`p-interactive.service`, and `p-attach`. An `agent-adapter` asset package must
-contain exactly `p-codex-adapter`. These names are roles; a package cannot
-choose host or session destinations. `p plugins plan-assets <activation.json>
-<plugin-id>` emits a `p.asset-plan/v1` summary with the package digest and
-per-file role, destination, mode, and SHA-256. Core holds verified bytes in
-the in-memory plan for a later session installer:
+An `agent-adapter` asset package must contain exactly `p-codex-adapter`. The
+name is a role; a package cannot choose host or session destinations.
+`p plugins plan-assets <activation.json> <plugin-id>` emits a
+`p.asset-plan/v1` summary with the package digest and per-file role,
+destination, mode, and SHA-256. Core holds verified bytes in the in-memory
+plan for the runtime driver:
 
 | Role | Fixed session destination | Mode |
 |---|---|---|
-| `p-session.target` | `/etc/systemd/system/p-session.target` | `0644` |
-| `p-interactive.service` | `/etc/systemd/system/p-interactive.service` | `0644` |
-| `p-attach` | `/usr/libexec/p/attach` | `0555` |
 | `p-codex-adapter` | `/usr/libexec/p/codex-adapter` | `0555` |
 
 Plans are limited to `internal-session` placement. Each asset must contain
 1 byte to 1 MiB. A changed package, wrong capability, missing or extra role,
-or wrong grant is rejected. Planning does not install files; later runtime
-work must write under session scope and verify ownership and destination
-safety.
+or wrong grant is rejected. Planning does not install files: core hands the
+planned file to the runtime driver, which installs it root-owned at its
+destination when it assembles a stopped session.
 
 ## Discovery and trusted activation
 
 `p plugins list /absolute/catalog/path` scans immediate package directories
 and reports valid packages and rejections. It does not activate anything.
-The NixOS distribution ships the three first-party packages under
-`share/p/plugins` beside its `bin/p`: tmux host, file-log handler and Codex
+The NixOS distribution ships the two first-party packages under
+`share/p/plugins` beside its `bin/p`: the file-log handler and the Codex
 adapter, each with only its declared files. Incus support is P's first-party
 runtime driver, the `p-runtime-incus` executable beside `bin/p`, not a package:
 host configuration pins it by path and SHA-256 as `runtime.driver`
 ([control API](control-api.md)), and the daemon checks the file's ownership,
 mode and links before it starts it
-([runtime isolation](runtime-isolation.md#driver-executable)). Git source is
-P's built-in source driver, not a package.
+([runtime isolation](runtime-isolation.md#driver-executable)). The driver holds
+the tmux session host, its systemd units and attach program, as its own files.
+Git source is P's built-in source driver, not a package.
 `p version` reports the P and Go versions, the control protocol
 (`control_protocol`, such as `p.control/v2`), the plugin API version and the
 linked module versions as JSON.

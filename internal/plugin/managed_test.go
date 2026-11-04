@@ -238,7 +238,7 @@ func TestManagedStageMutationAndConcurrentPublication(t *testing.T) {
 func managedAssetFixture(t *testing.T) (string, InstallResult) {
 	t.Helper()
 	state := privateManagedState(t)
-	source, e := filepath.Abs("../../plugins/bundled/tmux-host")
+	source, e := filepath.Abs("../../plugins/bundled/codex-adapter")
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -266,8 +266,8 @@ func interruptManagedRemoval(t *testing.T, state string, r InstallResult) []byte
 		t.Fatal("partial removal injection did not remove one actual file", err, calls)
 	}
 	entries, e := os.ReadDir(r.Package.Path)
-	if e != nil || len(entries) != 3 {
-		t.Fatal("expected three exact survivors", entries, e)
+	if e != nil || len(entries) != 1 {
+		t.Fatal("expected one exact survivor", entries, e)
 	}
 	raw, e := os.ReadFile(filepath.Join(managedRoot(state), ".disabled-"+r.Package.SHA256))
 	if e != nil {

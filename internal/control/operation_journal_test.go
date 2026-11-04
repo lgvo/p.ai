@@ -188,7 +188,7 @@ func TestIdempotencyKeyRefusesAnotherKindOrRequest(t *testing.T) {
 				t.Fatal(err)
 			}
 			req := ReserveSessionRequest{Project: "app", Branch: "work", Choice: "existing"}
-			selection := CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
+			selection := CreationSelection{}
 			request := func(key string) ReserveSessionRequest { req.Key = key; return req }
 			return keyCase{s, "app", "", func(key string) any { return request(key) }, func(key string, observe func(context.Context) error) error {
 				_, _, err := s.BeginSessionCreateCaptured(context.Background(), request(key), strings.Repeat("d", 64), selection, func(ctx context.Context, _ ReserveSessionRequest) (CapturedSource, error) {

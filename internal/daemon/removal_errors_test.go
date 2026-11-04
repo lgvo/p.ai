@@ -56,7 +56,7 @@ func TestRemovalRefusalsNameTheirNextStep(t *testing.T) {
 		t.Fatal(err)
 	}
 	attached, blocked := f.sessions[0].UUID, f.sessions[2].UUID
-	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
+	selection := control.CreationSelection{}
 	creation, creating, err := f.m.store.BeginSessionCreate(f.ctx, control.ReserveSessionRequest{Key: "session-creating", Project: "app", Branch: "creating", Choice: "existing"}, strings.Repeat("d", 64), selection,
 		func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 			return strings.Repeat("e", 40), true, nil

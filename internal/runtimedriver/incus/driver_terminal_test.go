@@ -70,9 +70,6 @@ func TestOpenTerminalRefusesAnUnreadyHostAndChangedHostAssets(t *testing.T) {
 		{"the attach program belongs to the session user", setFile("/etc/p/assets/p-attach", func(f *guestFile) { f.uid = 1000 }), false},
 		{"the attach link leads to another asset", setFile(attachProgram, func(f *guestFile) { f.data = []byte("/etc/p/assets/p-git-ssh") }), false},
 		{"the session user can write the asset directory", setFile("/etc/p/assets", func(f *guestFile) { f.mode = 0777 }), false},
-		{"the session's spec has no attach program", func(_ *incusWorld, s *runtimedriver.Session) {
-			s.Assets = slices.DeleteFunc(slices.Clone(s.Assets), func(a runtimedriver.Asset) bool { return a.Role == "p-attach" })
-		}, false},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			w := newIncusWorld(t)

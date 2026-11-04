@@ -77,7 +77,7 @@ and also runs over the protocol.
 | Network `public-egress` | Only the outbound destinations the [network contract](#network-contract) allows, proven from live state before each create and start by a check the daemon's account cannot forge. | Managed bridge, ACL and nftables read by two fixed sudo commands. |
 | Private state | The whole private root survives stop and start, belongs to this runtime only, and is gone after `Delete`. | The instance root ([storage](#storage)). |
 | Stopped storage | Workspace operations reach only the session's private root, never a grant, the endpoint directory, a host path or another runtime's storage. | A stopped instance's file API sees only its storage volume. |
-| Session host and services | The runtime runs the session's command in a persistent host that terminals attach to, reports it ready or not with a bounded diagnostic, and runs project services its own way. | systemd, tmux from the interactive-host package, user units ([runtime process model](#runtime-process-model), [project user services](#project-user-services)). |
+| Session host and services | The runtime runs the session's command in a persistent host that terminals attach to, reports it ready or not with a bounded diagnostic, and runs project services its own way. | systemd, the driver's own tmux host, user units ([runtime process model](#runtime-process-model), [project user services](#project-user-services)). |
 | Identity | Labels stored and returned exactly; an incarnation stable across stop and start, new on re-create or restore. | `user.p.*` keys, `volatile.uuid` and its generation, image properties. |
 | Endpoints and grants | The two sockets appear read-only at `/opt/p/endpoints` and each grant at `/mnt/p/<name>` with its flags, in that session only; a driver refuses what it cannot honor exactly. | Disk devices within the project's ceilings ([filesystem grants](#filesystem-grants)). |
 
@@ -214,7 +214,7 @@ P behavior or authority.
 
 Trusted configuration may select:
 
-- the interactive command and persistent interactive-host implementation;
+- the interactive command;
 - `none` or validated `public-egress` networking;
 - named runtime-owned data/cache directories;
 - named filesystem grants within the Incus project's pre-authorized path
@@ -243,7 +243,7 @@ P instance UUID
 session UUID
 project path and assigned branch
 initial branch object ID, absent only for a blank-project bootstrap
-interactive command and persistent-host selection
+interactive command
 normalized project-policy snapshot and digest
 runtime-owned directory plan
 session endpoint descriptors
@@ -508,8 +508,7 @@ An Incus system container boots systemd and has a small explicit hierarchy:
    store writes and accepts only the fixed session user;
 3. `p-interactive.service` validates fixed paths/endpoints, applies the
    recorded activation, runs the project shell hook, and starts the configured
-   command inside the selected persistent interactive host as the session
-   user; and
+   command inside the persistent interactive host as the session user; and
 4. the shell/agent may start its own processes inside the same instance.
 
 The Nix daemon is inside the unprivileged Incus user namespace. It is not the
@@ -537,8 +536,11 @@ restart, or present project services.
 - use `Restart=no`; and
 - request normal container shutdown after clean or failed persistent-host exit.
 
-The unit and its root-owned configuration come only from the P base image and
-trusted session assembly. Repository content and the session user cannot
+The unit, its target and the attach program are the Incus driver's own files:
+session assembly installs them root-owned, and the P base image links them
+into place. With their root-owned configuration they come only from the
+driver, the base image and trusted session assembly; no plugin package or
+host setting selects them. Repository content and the session user cannot
 replace them. The unit writes bounded status and failure output to the
 persistent system journal. P observes Incus state plus current systemd unit
 state; there is no second startup-readiness marker or generation protocol.
@@ -609,7 +611,7 @@ are omitted from instance metadata, logs, SQLite diagnostics, and TUI previews.
 
 ## Attachment
 
-Every supported persistent host supplies the same two runtime artifacts:
+The Incus driver's session host supplies two runtime artifacts:
 
 - `p-interactive.service`, which systemd owns for startup, readiness, lifetime,
   and logs; and
@@ -619,8 +621,8 @@ Every supported persistent host supplies the same two runtime artifacts:
 The attach command is a short-lived adapter, not a daemon or supervisor. The
 Incus driver's `OpenTerminal` first checks that the runtime is at the
 requested incarnation, running, with its host ready, and that the image's
-links to the unit and attach program resolve to the selected host package's
-assets, unchanged. It then opens a structured Incus exec operation as the
+links to the unit and attach program resolve to the driver's own files,
+unchanged. It then opens a structured Incus exec operation as the
 fixed session user with an explicit PTY, working directory, and argv
 containing only `/usr/libexec/p/attach`. Before the exec starts it arms its
 completion witness, a wait on Incus's exec operation, and it keeps that
@@ -629,8 +631,8 @@ with fixed host-specific argv, such as a tmux attach client addressed by a
 root-owned socket/session descriptor. It accepts no client-selected command,
 socket, session name, or shell string.
 
-Tmux is the shipped MVP default. Another persistent host is supported only when
-its systemd unit and attach command pass the same conformance contract.
+Tmux is the Incus driver's persistent host. Another host is a change to the
+driver, whose systemd unit and attach command must keep this contract.
 
 The client and the attachment helper never receive Incus credentials or any
 runtime detail: the daemon opens the terminal through the runtime driver and

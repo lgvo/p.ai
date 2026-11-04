@@ -323,9 +323,11 @@ trusted project-scoped P configuration and evaluates only the ordinary Nix
 devShell from the selected commit. The default devShell is used when present;
 otherwise the substrate-only environment applies.
 
-Creation pins the selected interactive-host and agent-adapter packages by ID
-and digest, and a Retry requires the same packages. It pins no source package:
-the source driver is part of P, whose backend P pins once for the instance.
+Creation pins the selected agent-adapter package, if one is selected, by ID
+and digest, and a Retry requires the same package. It pins no session host
+package: the session host is the runtime driver's own. It pins no source
+package: the source driver is part of P, whose backend P pins once for the
+instance.
 
 ### Create phases
 

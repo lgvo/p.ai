@@ -13,7 +13,7 @@
   branches.
 - Fix when: a worker's recovery logic changes.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework).
-- Added 2026-11-01, updated 2026-11-03, 21 cases:
+- Added 2026-11-01, updated 2026-11-03, 22 cases:
   - 2026-11-01: "complete rework of P's implementation" mapped the daemon and left this out
     of scope because the workers' behavior is pinned only by VM scenarios.
   - 2026-11-02: "fix the Start readiness race" could not run `InspectSession` or Start's
@@ -114,6 +114,10 @@
     source driver, and a few fixtures still run the bundled driver on a real repository
     (`gitSource`). The Git half of this entry is gone; the title, "Problem", "Risk" and "Fix"
     now name only the store.
+  - 2026-11-03: "step 9 P1: the session host moves into the Incus driver" removed the
+    lifecycle's host package plan, so a session's spec carries only the selected agent
+    adapter, which a new unit test on the in-memory driver checks; the store field is
+    unchanged.
 
 ## Long worker functions
 
@@ -228,7 +232,7 @@
 - Fix when: the next change to how P reaches Incus.
 - Left by: the agent, by rule (a restructuring not pursued in the implementation rework;
   step 8 consolidates only the instance inventory).
-- Added 2026-11-01, updated 2026-11-03, 9 cases:
+- Added 2026-11-01, updated 2026-11-03, 10 cases:
   - 2026-11-01: "complete rework of P's implementation" scoped step 8 to the inventory.
   - 2026-11-02: "deletions without inspection" deleted workspace_git.go and
     workspace_helper.go with the workspace helpers, and their exec and file-API clients.
@@ -257,6 +261,10 @@
     driver into its own executable, `p-runtime-incus`, which the daemon starts with an empty
     environment, so host_observe.go `trustedJournalctl` now needs the driver config's
     optional `journalctl`; no client changed, and consolidation stays outside the step.
+  - 2026-11-03: "step 9 P1: the session host moves into the Incus driver" made attach.go
+    `verifyAttachAssets` compare the guest's files with the driver's own host files
+    instead of the session's assets; no client changed, and consolidation stays outside
+    the step.
 
 ## Trusted configuration and the RPC server live in the store package
 
@@ -279,7 +287,7 @@
   the bundled source driver, plugin and the Incus driver), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 13 cases:
+- Added 2026-11-01, updated 2026-11-03, 14 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -323,6 +331,9 @@
     `activation_path` and `source_plugin_id` from `git`, a change to host configuration
     that meets "Fix when"; the move was outside that removal. gitservice, which copied
     the identifier formats and returned control's refusals, is gone.
+  - 2026-11-03: "step 9 P1: the session host moves into the Incus driver" removed
+    `activation_path` and `host_plugin_id` from `runtime`, a change to host configuration
+    that meets "Fix when"; the move was outside that removal.
 
 ## Operation status updates and kind lists are still written per site
 

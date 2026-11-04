@@ -7,9 +7,9 @@
 let
   kit = pkgs.callPackage ./package.nix { };
   # NixOS makes /etc/systemd/system a link to an immutable generated unit
-  # tree. These fixed links let trusted assembly place selected, digest-checked
-  # asset bytes in the private instance root while retaining the public unit
-  # paths and a stateless boot dependency.
+  # tree. These fixed links let trusted assembly place the runtime driver's
+  # session host units in the private instance root while retaining the public
+  # unit paths and a stateless boot dependency.
   hostUnitLinks = pkgs.runCommand "p-host-unit-links" { } ''
     mkdir -p $out/etc/systemd/system
     ln -s /etc/p/assets/p-session.target $out/etc/systemd/system/p-session.target

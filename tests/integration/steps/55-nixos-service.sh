@@ -94,7 +94,7 @@ test "$(systemctl show p.service -p ProtectSystem --value)" = strict
 test "$(stat -c '%a:%u' "$state")" = "700:$(id -u)"
 test "$(stat -c '%a:%u:%h' "$state/host.json")" = "600:$(id -u):1"
 test "$(stat -c '%a:%u' "$state/activation.json")" = "600:$(id -u)"
-p plugins activate "$state/activation.json" | jq -e 'length==3' >/dev/null
+p plugins activate "$state/activation.json" | jq -e 'length==2' >/dev/null
 activation_sha=$(sha256sum "$state/activation.json" | cut -d ' ' -f1)
 rpc system.hello | jq -e '.result.capabilities|index("runtime")!=null' >/dev/null
 created=$(rpc project.create '{"key":"nixos-service55-create","project":"nixos-service55"}')

@@ -22,7 +22,7 @@ import (
 )
 
 // attachProgram is the session host's fixed attach program: the image's
-// link to the p-attach asset, which attaches its terminal to the host.
+// link to the driver's p-attach, which attaches its terminal to the host.
 const attachProgram = "/usr/libexec/p/attach"
 
 // terminalOpenWait bounds the opening of a terminal's channel.
@@ -42,8 +42,8 @@ var (
 // OpenTerminal attaches a PTY of size to the session host of the running
 // runtime at t.At: an interactive Incus exec of the fixed attach program.
 // It first checks that the host is ready and that the image's links to the
-// host's unit and attach program resolve to the session's assets of those
-// roles, unchanged, and checks the runtime again after those reads. A
+// host's unit and attach program resolve to the driver's own files,
+// unchanged, and checks the runtime again after those reads. A
 // refusal's text is a fixed code: native errors and guest content stay out
 // of it. An open that fails once Incus admitted the exec, without proof
 // that the exec ended, returns a *runtimedriver.UnendedTerminal.
@@ -60,7 +60,7 @@ func (d *Driver) OpenTerminal(ctx context.Context, t runtimedriver.Target, size 
 		return nil, err
 	}
 	files := attachmentFileAPI{&unixFileAPI{socket: b.config.UserSocket, project: b.config.Project, instance: b.name(s)}}
-	if err := verifyAttachAssets(ctx, files, t.Session.Assets); err != nil {
+	if err := verifyAttachAssets(ctx, files); err != nil {
 		return nil, err
 	}
 	// Inspect again after the asset reads; it checks current Incus ownership.

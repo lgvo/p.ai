@@ -153,23 +153,18 @@ activate() {
   jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
     '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
 }
-activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/runtime.json" session.asset.install
 activate "$P_TEST_SOURCE/plugins/bundled/codex-adapter" "$step_dir/agent.json" agent.status.report
 
 base_image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base_image}" -eq 64
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_real")
 jq -n --arg state "$state" \
-  --arg runtime_activation "$step_dir/runtime.json" \
-  --arg host_id "$(jq -er '.plugins[0].id' "$step_dir/runtime.json")" \
   --arg agent_activation "$step_dir/agent.json" \
   --arg agent_id "$(jq -er '.plugins[0].id' "$step_dir/agent.json")" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$base_image" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
-    runtime:{activation_path:$runtime_activation,
-      host_plugin_id:$host_id,
-      agent_adapter:{activation_path:$agent_activation,plugin_id:$agent_id},
+    runtime:{agent_adapter:{activation_path:$agent_activation,plugin_id:$agent_id},
       driver:$driver,
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
       base_image_fingerprint:$image,

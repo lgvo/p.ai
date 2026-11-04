@@ -77,7 +77,7 @@ func TestAssembledCreationForCleanupRefusesUnsupportedCreators(t *testing.T) {
 			case "image":
 				creation.ImageFingerprint = strings.Repeat("c", 64)
 			case "selection":
-				creation.Selection = CreationSelection{}
+				creation.Selection = CreationSelection{AgentID: "org.p.codex-adapter"}
 			case "replacement":
 				creation.SupersedesOperationID = op.ID
 			}

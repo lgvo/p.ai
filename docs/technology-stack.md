@@ -26,7 +26,7 @@ runner and typed session asset plans are now available.
 | Runtime | local Incus, one confined user project, reached through the supervised `p-runtime-incus` driver | Incus owns instances, images, storage, state, and operations |
 | Session type | unprivileged Incus system container | one instance per session UUID |
 | Environment | one private Incus image per source commit: its default Nix devShell and a clone of the commit | Nix owns realization; Incus owns image bytes; SQLite indexes images by commit |
-| Interactive host | systemd unit plus fixed attach command; tmux by default | systemd owns readiness/lifetime |
+| Interactive host | the Incus driver's own systemd unit and fixed attach command, with tmux | systemd owns readiness/lifetime |
 | Session observability | session/policy condition, confirmed attachments, latest unattended condition | reconciled authorities plus small live/persisted state |
 | Agent | Codex running as an ordinary session command | bundled status adapter; authentication remains in the session's private home |
 | Model gateway | post-MVP independently configured Bifrost | retained design; not an MVP dependency |
@@ -87,7 +87,7 @@ is unknown, and project services (`Services`, `ServiceAction`, `ServiceLogs`).
 `Session` is core's spec of one runtime: the session reference and project,
 the image, the interactive command, the workspace's repository, branch and
 commit, the session's Git key and P's pinned Git host key, the endpoint
-directory, the grants, the network and the session assets core selected. The
+directory, the grants, the network and the selected agent adapter's files. The
 driver decides where each part goes in the guest; the only guest place core
 knows is the workspace of a stopped session. A mutation takes a gate, a core
 function the driver calls right before its first effect, where core records
@@ -200,10 +200,11 @@ path for bundled implementations.
 ### Systemd interactive host
 
 The current MVP behavior uses an operating-system contract rather than a Go
-`InteractiveHost` interface. Product direction requires tmux support to be a
-bundled internal-session-service plugin; the follow-up design must decide how
-plugin selection supplies this contract. Every supported session image
-currently supplies:
+`InteractiveHost` interface. How a runtime runs the session host is the
+runtime driver's own business: the Incus driver holds the tmux host's systemd
+units and attach program as its own files, installs them in each session, and
+checks them before each attachment; no plugin or host setting selects them.
+Every supported session image links them at:
 
 ```text
 p-session.target
@@ -214,8 +215,8 @@ p-interactive.service
 The required behavior remains: the unit owns endpoint/environment activation,
 the configured command, persistent-host readiness, cgroup lifetime, and
 journald diagnostics. The fixed attach command connects one Incus PTY to the
-already-running host. Tmux is the shipped default. Another implementation is a
-packaging/conformance choice that replaces the trusted unit and attach command
+already-running host. Tmux is the Incus driver's host. Another implementation
+is a change to the driver that replaces the trusted unit and attach command
 without changing lifecycle code. There is no MVP `direct` host.
 
 ### Client transport

@@ -18,14 +18,6 @@ cleanup() {
 }
 trap cleanup EXIT
 trap 'printf "P_RUNTIME_INCUS_FAIL line=%s status=%s\n" "$LINENO" "$?" >&2; tail -c 2048 "$step_dir/refused.err" >&2 || true; tail -c 1024 "$step_dir/git.err" >&2 || true' ERR
-activate_package() {
-  local package="$1" target="$2" grant="$3" digest id
-  digest=$(p plugins conformance "$package" | jq -er '.sha256')
-  id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
-}
-activate_package "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host.json" session.asset.install
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 ssh-keygen -q -t ed25519 -N '' -f "$step_dir/server"
@@ -59,10 +51,9 @@ for ((attempt=0; attempt<100; attempt++)); do
 done
 test -S "$endpoint/session.sock" && test -S "$endpoint/git.sock"
 jq -n --arg session "$session" --arg image "$fingerprint" --arg endpoints "$endpoint" \
-  --arg host "$step_dir/host.json" \
   --arg key "$step_dir/session" --arg server "$step_dir/server.pub" \
   '{instance_uuid:"11111111-1111-4111-8111-111111111111",session_uuid:$session,project:"incus",
-    branch:"main",image:$image,endpoints:$endpoints,host_activation:$host,
+    branch:"main",image:$image,endpoints:$endpoints,
     git_key_file:$key,git_host_key_file:$server}' > "$step_dir/session.json"
 runtime() { timeout 190 runtime-fixture "$@"; }
 invoke() { runtime "$1" "$step_dir/session.json" "${@:2}"; }

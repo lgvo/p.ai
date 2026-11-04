@@ -116,28 +116,24 @@ test ! -e "$hostile_log"
 asset_pkg="$step_dir/assets"
 mkdir -m 0700 "$asset_pkg"
 cat > "$asset_pkg/plugin.json" <<'JSON'
-{"schema":"p.plugin/v1","id":"org.p.example.host","version":"1.0.0","api":"1.0","capability":"interactive-host","placement":"internal-session","description":"VM asset planning fixture","runtime":{"kind":"assets"},"requests":["session.asset.install"],"assets":["p-session.target","p-interactive.service","p-attach"]}
+{"schema":"p.plugin/v1","id":"org.p.example.adapter","version":"1.0.0","api":"1.0","capability":"agent-adapter","placement":"internal-session","description":"VM asset planning fixture","runtime":{"kind":"assets"},"requests":["agent.status.report"],"assets":["p-codex-adapter"]}
 JSON
-printf '[Unit]\nDescription=P fixture\n' > "$asset_pkg/p-session.target"
-printf '[Unit]\nDescription=P fixture service\n' > "$asset_pkg/p-interactive.service"
-printf '#!/bin/sh\nexit 0\n' > "$asset_pkg/p-attach"
+printf '#!/bin/sh\nexit 0\n' > "$asset_pkg/p-codex-adapter"
 asset_digest=$(p plugins conformance "$asset_pkg" | jq -er '.sha256')
 asset_activation="$step_dir/asset-activation.json"
 jq -n --arg pkg "$asset_pkg" --arg digest "$asset_digest" \
-  '{schema:"p.activation/v1",plugins:[{id:"org.p.example.host",path:$pkg,sha256:$digest,grants:["session.asset.install"],config:{}}]}' > "$asset_activation"
-p plugins activate "$asset_activation" | jq -e '.[0].capability == "interactive-host"' >/dev/null
-p plugins plan-assets "$asset_activation" org.p.example.host | jq -e '
-  .schema == "p.asset-plan/v1" and .scope == "internal-session" and (.files|length) == 3 and
-  (.files|map({role,destination,mode})|sort_by(.role)) ==
-  ([{"role":"p-attach","destination":"/usr/libexec/p/attach","mode":365},
-    {"role":"p-interactive.service","destination":"/etc/systemd/system/p-interactive.service","mode":420},
-    {"role":"p-session.target","destination":"/etc/systemd/system/p-session.target","mode":420}]|sort_by(.role))
+  '{schema:"p.activation/v1",plugins:[{id:"org.p.example.adapter",path:$pkg,sha256:$digest,grants:["agent.status.report"],config:{}}]}' > "$asset_activation"
+p plugins activate "$asset_activation" | jq -e '.[0].capability == "agent-adapter"' >/dev/null
+p plugins plan-assets "$asset_activation" org.p.example.adapter | jq -e '
+  .schema == "p.asset-plan/v1" and .scope == "internal-session" and (.files|length) == 1 and
+  (.files|map({role,destination,mode})) ==
+  [{"role":"p-codex-adapter","destination":"/usr/libexec/p/codex-adapter","mode":365}]
 ' >/dev/null
 
 jq '.placement="host"' "$asset_pkg/plugin.json" > "$step_dir/invalid-manifest.json"
 mv "$step_dir/invalid-manifest.json" "$asset_pkg/plugin.json"
 step03_expect_failure 'requires internal-session placement' p plugins conformance "$asset_pkg"
-jq '.placement="internal-session" | .assets[2]="../other"' "$asset_pkg/plugin.json" > "$step_dir/invalid-manifest.json"
+jq '.placement="internal-session" | .assets[0]="../other"' "$asset_pkg/plugin.json" > "$step_dir/invalid-manifest.json"
 mv "$step_dir/invalid-manifest.json" "$asset_pkg/plugin.json"
 step03_expect_failure 'unsafe relative path' p plugins conformance "$asset_pkg"
 

@@ -175,11 +175,9 @@ type CreateReplaceDetails struct {
 	Provisional         CreateReplaceResources `json:"provisional"`
 }
 
-// CreationSelection is the host and agent plugins that a creation pins, each
-// by ID and digest.
+// CreationSelection is the agent adapter that a creation pins, by ID and
+// digest; empty when its session has none.
 type CreationSelection struct {
-	HostID      string `json:"host_id"`
-	HostSHA256  string `json:"host_sha256"`
 	AgentID     string `json:"agent_id,omitempty"`
 	AgentSHA256 string `json:"agent_sha256,omitempty"`
 }

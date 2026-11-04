@@ -12,7 +12,6 @@ type bundledRole struct {
 }
 
 var bundledRoles = []bundledRole{
-	{"tmux-host", "org.p.tmux-host", "interactive-host", "assets", "", "session.asset.install"},
 	{"file-log", "org.p.filelog", "event-handler", "declarative", "event.file.append", "event.file.append"},
 	{"codex-adapter", "org.p.codex-adapter", "agent-adapter", "assets", "", "agent.status.report"},
 }

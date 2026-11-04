@@ -9,8 +9,6 @@ import (
 	"path"
 	"slices"
 	"strings"
-
-	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
 // attachmentError refuses a terminal with a fixed diagnostic code. Native
@@ -27,33 +25,27 @@ func attachmentFailure(code string, err error) error {
 	return &attachmentError{code: code, err: err}
 }
 
-// attachLinks are the image's fixed links a terminal relies on, by asset
-// role: the session host's unit and its attach program.
-var attachLinks = []struct{ role, link string }{
+// attachLinks are the image's fixed links a terminal relies on, each to a
+// file of the driver's session host: the host's unit and its attach program.
+var attachLinks = []struct{ name, link string }{
 	{"p-interactive.service", "/etc/systemd/system/p-interactive.service"},
 	{"p-attach", attachProgram},
 }
 
 // verifyAttachAssets checks that each of the image's attach links
-// resolves, through root-owned paths only, to the session's asset of its
-// role, installed unchanged.
-func verifyAttachAssets(ctx context.Context, api fileAPI, assets []runtimedriver.Asset) error {
+// resolves, through root-owned paths only, to the driver's own host file of
+// its name, installed unchanged.
+func verifyAttachAssets(ctx context.Context, api fileAPI) error {
+	host := hostFiles()
 	for _, l := range attachLinks {
-		i := slices.IndexFunc(assets, func(a runtimedriver.Asset) bool { return a.Role == l.role })
-		if i < 0 {
-			return attachmentFailure(l.role+":asset-missing", errors.New("required host asset missing"))
-		}
-		want, err := assetInstall(l.role, assets[i].Mode, assets[i].Data, assets[i].SHA256)
-		if err != nil {
-			return attachmentFailure(l.role+":asset-invalid", err)
-		}
+		want := host[slices.IndexFunc(host, func(f guestInstall) bool { return path.Base(f.path) == l.name })]
 		f, resolved, err := resolveTrustedGuestFile(ctx, api, l.link)
 		if err != nil {
 			var failure *attachmentError
 			if errors.As(err, &failure) {
-				return attachmentFailure(l.role+":"+failure.code, err)
+				return attachmentFailure(l.name+":"+failure.code, err)
 			}
-			return attachmentFailure(l.role+":file-api", err)
+			return attachmentFailure(l.name+":file-api", err)
 		}
 		for _, check := range []struct {
 			ok   bool
@@ -66,7 +58,7 @@ func verifyAttachAssets(ctx context.Context, api fileAPI, assets []runtimedriver
 			{bytes.Equal(f.data, want.file.data), "content"},
 		} {
 			if !check.ok {
-				return attachmentFailure(l.role+":"+check.code, errors.New("fixed host asset changed; repair required"))
+				return attachmentFailure(l.name+":"+check.code, errors.New("fixed host asset changed; repair required"))
 			}
 		}
 	}

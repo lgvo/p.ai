@@ -79,7 +79,7 @@ func TestWASIEventFilterAndDigestPin(t *testing.T) {
 
 func TestAssetPlanFixedRolesAndPins(t *testing.T) {
 	dir := t.TempDir()
-	manifest := Manifest{Schema: ManifestSchema, ID: "org.p.example.host", Version: "1.0.0", API: APIVersion, Capability: "interactive-host", Placement: "internal-session", Description: "Example host", Runtime: Runtime{Kind: "assets"}, Requests: []string{"session.asset.install"}, Assets: []string{"p-session.target", "p-interactive.service", "p-attach"}}
+	manifest := Manifest{Schema: ManifestSchema, ID: "org.p.example.adapter", Version: "1.0.0", API: APIVersion, Capability: "agent-adapter", Placement: "internal-session", Description: "Example adapter", Runtime: Runtime{Kind: "assets"}, Requests: []string{"agent.status.report"}, Assets: []string{"p-codex-adapter"}}
 	data, _ := json.Marshal(manifest)
 	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), data, 0600); err != nil {
 		t.Fatal(err)
@@ -100,21 +100,21 @@ func TestAssetPlanFixedRolesAndPins(t *testing.T) {
 		t.Fatal(err)
 	}
 	plan, err := PlanAssets(active[0])
-	if err != nil || len(plan.Files) != 3 {
+	if err != nil || len(plan.Files) != 1 {
 		t.Fatalf("plan: %+v %v", plan, err)
 	}
 	for _, file := range plan.Files {
-		if file.Destination != assetRoles[file.Role].destination || file.Mode != assetRoles[file.Role].mode || string(file.Data) != "asset:"+file.Role {
+		if file.Destination != "/usr/libexec/p/codex-adapter" || file.Mode != 0555 || string(file.Data) != "asset:"+file.Role {
 			t.Fatalf("wrong role plan: %+v", file)
 		}
 	}
-	if err := os.WriteFile(filepath.Join(dir, "p-attach"), []byte("changed"), 0600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "p-codex-adapter"), []byte("changed"), 0600); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := PlanAssets(active[0]); err == nil || !strings.Contains(err.Error(), "digest changed") {
 		t.Fatalf("mutated asset accepted: %v", err)
 	}
-	manifest.Assets[2] = "other"
+	manifest.Assets[0] = "other"
 	data, _ = json.Marshal(manifest)
 	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), data, 0600); err != nil {
 		t.Fatal(err)
@@ -202,6 +202,25 @@ func TestRuntimeCapabilityIsRefused(t *testing.T) {
 	activationFile(t, pkg, path, []string{"runtime.incus"}, struct{}{})
 	if _, err := LoadActivation(path); err == nil || !strings.Contains(err.Error(), `unsupported capability "runtime"`) {
 		t.Fatalf("runtime capability activation: %v", err)
+	}
+}
+
+// The runtime driver runs the session host itself: a package that offers an
+// interactive host is no plugin.
+func TestInteractiveHostCapabilityIsRefused(t *testing.T) {
+	dir := t.TempDir()
+	m := Manifest{Schema: ManifestSchema, ID: "org.p.example.host", Version: "1.0.0", API: APIVersion, Capability: "interactive-host", Placement: "internal-session", Description: "Example host", Runtime: Runtime{Kind: "assets"}, Requests: []string{"session.asset.install"}, Assets: []string{"p-session.target", "p-interactive.service", "p-attach"}}
+	data, _ := json.Marshal(m)
+	if err := os.WriteFile(filepath.Join(dir, "plugin.json"), data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range m.Assets {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte("asset:"+name), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := Conformance(dir); err == nil || !strings.Contains(err.Error(), `unsupported capability "interactive-host"`) {
+		t.Fatalf("interactive host package: %v", err)
 	}
 }
 

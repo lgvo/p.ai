@@ -24,11 +24,11 @@ var (
 )
 
 var placements = map[string]string{
-	"interactive-host": "internal-session", "event-handler": "host", "agent-adapter": "internal-session",
+	"event-handler": "host", "agent-adapter": "internal-session",
 }
 
 var grants = map[string]string{
-	"session.asset.install": "interactive-host", "event.file.append": "event-handler", "agent.status.report": "agent-adapter",
+	"event.file.append": "event-handler", "agent.status.report": "agent-adapter",
 }
 
 // Conformance validates package data and returns its content digest. It never
@@ -271,8 +271,6 @@ func validateManifest(m Manifest, names []string, headers map[string][4]byte) er
 	if m.Runtime.Kind == "assets" {
 		var required []string
 		switch m.Capability {
-		case "interactive-host":
-			required = []string{"p-session.target", "p-interactive.service", "p-attach"}
 		case "agent-adapter":
 			required = []string{"p-codex-adapter"}
 		default:

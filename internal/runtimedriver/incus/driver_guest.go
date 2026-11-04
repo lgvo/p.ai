@@ -3,7 +3,6 @@ package incus
 import (
 	"context"
 	"errors"
-	"fmt"
 	"slices"
 	"strings"
 
@@ -11,12 +10,9 @@ import (
 	"github.com/lgvo/p.ai/internal/runtimekit"
 )
 
-// The asset roles of a session: its systemd host's units and attach program,
-// which every session has, and the agent adapter, which one may have.
-var (
-	requiredAssetRoles = []string{"p-session.target", "p-interactive.service", "p-attach"}
-	agentAssetRole     = "p-codex-adapter"
-)
+// agentAssetRole is the one asset role of a session: the agent adapter,
+// which a session may have.
+const agentAssetRole = "p-codex-adapter"
 
 // sessionGuestPlan is the guest file plan of a session, from its spec and the
 // image its runtime is created from.
@@ -92,38 +88,25 @@ func guestPlanFor(s runtimedriver.Session, shell *runtimedriver.Shell, egress *P
 	if err != nil {
 		return guestPlan{}, err
 	}
-	return guestPlan{files: append(assets, files...), material: config.MaterialSHA256}, nil
+	return guestPlan{files: slices.Concat(hostFiles(), assets, files), material: config.MaterialSHA256}, nil
 }
 
-// sessionAssets checks the session's assets: each required role exactly
-// once, the agent adapter at most once, nothing else. It returns their
-// guest files in role order and the adapter's digest, if there is one.
+// sessionAssets checks the session's assets: the agent adapter, if the
+// session has one, and nothing else. It returns the adapter's guest file and
+// digest.
 func sessionAssets(assets []runtimedriver.Asset) ([]guestInstall, string, error) {
-	byRole := map[string]runtimedriver.Asset{}
-	for _, a := range assets {
-		if _, seen := byRole[a.Role]; seen || !slices.Contains(requiredAssetRoles, a.Role) && a.Role != agentAssetRole {
-			return nil, "", fmt.Errorf("session asset role %q unknown or repeated", a.Role)
-		}
-		byRole[a.Role] = a
+	switch {
+	case len(assets) == 0:
+		return nil, "", nil
+	case len(assets) > 1 || assets[0].Role != agentAssetRole:
+		return nil, "", errors.New("a session's only asset is its agent adapter")
 	}
-	roles := requiredAssetRoles
-	agent, hasAgent := byRole[agentAssetRole]
-	if hasAgent {
-		roles = append(slices.Clone(roles), agentAssetRole)
+	a := assets[0]
+	install, err := assetInstall(a.Role, a.Mode, a.Data, a.SHA256)
+	if err != nil {
+		return nil, "", err
 	}
-	files := make([]guestInstall, 0, len(roles))
-	for _, role := range roles {
-		a, ok := byRole[role]
-		if !ok {
-			return nil, "", fmt.Errorf("session asset role %q missing", role)
-		}
-		install, err := assetInstall(role, a.Mode, a.Data, a.SHA256)
-		if err != nil {
-			return nil, "", err
-		}
-		files = append(files, install)
-	}
-	return files, agent.SHA256, nil
+	return []guestInstall{install}, a.SHA256, nil
 }
 
 // guestGrants are what the guest's runtime kit knows of the session's grants:

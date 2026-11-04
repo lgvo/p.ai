@@ -1,6 +1,6 @@
 # shellcheck shell=bash
-# Production image and selected host assets in two sessions that the runtime
-# driver creates and starts through a test fixture. Public project/session
+# Production image and the driver's session host in two sessions that the
+# runtime driver creates and starts through a test fixture. Public project/session
 # creation and attachment leases are later steps.
 set -E
 umask 077
@@ -115,15 +115,7 @@ push_root() {
   local name="$1" source="$2" destination="$3" mode="$4"
   inc file push --create-dirs --uid 0 --gid 0 --mode "$mode" "$source" "$name$destination"
 }
-activate_package() {
-  local package="$1" target="$2" grant="$3" digest id
-  digest=$(p plugins conformance "$package" | jq -er '.sha256')
-  id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
-}
 runtime() { timeout 190 runtime-fixture "$@"; }
-activate_package "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host.json" session.asset.install
 fingerprint=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#fingerprint}" -eq 64
 inc image list --format json | jq -e --arg f "$fingerprint" 'any(.[]; .fingerprint==$f)' >/dev/null
@@ -158,15 +150,15 @@ for label in a b; do
   done
   test -S "$endpoint/session.sock" && test -S "$endpoint/git.sock"
   jq -n --arg session "$session" --arg project "host-$label" --arg image "$fingerprint" \
-    --arg endpoints "$endpoint" --arg host "$step_dir/host.json" \
+    --arg endpoints "$endpoint" \
     --arg key "$step_dir/$label" --arg server "$step_dir/server.pub" \
     '{instance_uuid:"11111111-1111-4111-8111-111111111111",session_uuid:$session,project:$project,
-      branch:"main",image:$image,endpoints:$endpoints,host_activation:$host,
+      branch:"main",image:$image,endpoints:$endpoints,
       git_key_file:$key,git_host_key_file:$server}' > "$step_dir/$label-session.json"
   stat -c 'HOST_ENDPOINT %n uid=%u gid=%g mode=%a type=%F' "$endpoint_prefix" \
     "$endpoint" "$endpoint/session.sock" "$endpoint/git.sock"
-  # The driver installs the selected host assets, its own Git SSH wrapper and
-  # the session's guest files; Start returns once the session host is ready.
+  # The driver installs its own session host and Git SSH wrapper and the
+  # session's guest files; Start returns once the session host is ready.
   runtime create "$step_dir/$label-session.json" | jq -e '.state=="stopped" and .complete' >/dev/null
   runtime start "$step_dir/$label-session.json" | jq -e '.state=="running" and .host.ready' >/dev/null
   test "$(inc list "$name" --format json | jq -er --arg n "$name" '.[] | select(.name==$n) | .expanded_devices["p-endpoint"].source')" = "$endpoint"

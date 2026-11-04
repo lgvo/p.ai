@@ -252,9 +252,11 @@ type Network struct {
 }
 
 // Asset is one file of a session asset package core selected, named by its
-// role. The driver installs it where its session host expects that role.
+// role: the agent adapter's p-codex-adapter. The driver installs it where
+// the session expects that role. The session host's own files are the
+// driver's, not assets.
 type Asset struct {
-	Role   string // such as p-attach or p-codex-adapter
+	Role   string // p-codex-adapter
 	Mode   uint32
 	Data   []byte
 	SHA256 string // hex SHA-256 of Data

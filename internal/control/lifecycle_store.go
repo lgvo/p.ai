@@ -65,16 +65,15 @@ type CreationImage struct {
 	MaterialSHA256 string `json:"material_sha256,omitempty"`
 }
 
+// CreationSelection is the agent adapter package a creation pins, by ID and
+// digest; empty when its session has none.
 type CreationSelection struct {
-	HostID      string `json:"host_id"`
-	HostSHA256  string `json:"host_sha256"`
 	AgentID     string `json:"agent_id,omitempty"`
 	AgentSHA256 string `json:"agent_sha256,omitempty"`
 }
 
 func (s CreationSelection) Valid() bool {
-	return s.HostID != "" && len(s.HostID) <= 128 && validFingerprint(s.HostSHA256) &&
-		(s.AgentID == "" && s.AgentSHA256 == "" || s.AgentID != "" && len(s.AgentID) <= 128 && validFingerprint(s.AgentSHA256))
+	return s.AgentID == "" && s.AgentSHA256 == "" || s.AgentID != "" && len(s.AgentID) <= 128 && validFingerprint(s.AgentSHA256)
 }
 
 type SourceCapture func(context.Context, ReserveSessionRequest) (string, bool, error)

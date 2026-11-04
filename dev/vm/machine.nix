@@ -253,8 +253,6 @@ in
           plugin_id = "org.p.filelog";
         };
         runtime = {
-          activation_path = "${pState}/activation.json";
-          host_plugin_id = "org.p.tmux-host";
           # Pinned here, not left to the module, since demo.nix also writes
           # a host configuration from these settings.
           driver = rec {

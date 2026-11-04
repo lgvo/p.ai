@@ -198,7 +198,7 @@ func newImageFixture(t *testing.T) *imageFixture {
 }
 
 func imageTestSelection() control.CreationSelection {
-	return control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("2", 64)}
+	return control.CreationSelection{}
 }
 
 // create admits a creation of session branch from commit, assigned its

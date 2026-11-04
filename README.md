@@ -226,8 +226,9 @@ VMs and Kubernetes placement are later options, not different session models.
 
 Every image implements the same systemd contract. `p-session.target` starts
 `p-interactive.service`, which launches and supervises one persistent
-interactive host; tmux is the default, while another long-running host such as
-screen or zellij can be selected by trusted configuration. The root-owned
+interactive host. The runtime driver provides the host as its own files: the
+Incus driver runs tmux, and another long-running host such as screen or zellij
+would be a change to the driver, not a setting. The root-owned
 `/usr/libexec/p/attach` entrypoint attaches a temporary terminal channel to
 that host.
 

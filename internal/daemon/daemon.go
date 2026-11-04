@@ -55,7 +55,7 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 			cancel()
 			life.Close()
 		}()
-		if !sameLeasedAsset(leasedPackages, life.hostPlan) || life.agentPlan != nil && !sameLeasedAsset(leasedPackages, *life.agentPlan) {
+		if life.agentPlan != nil && !sameLeasedAsset(leasedPackages, *life.agentPlan) {
 			return errors.New("asset selection changed while acquiring package leases")
 		}
 		life.events = events

@@ -32,7 +32,7 @@ cleanup() {
  # The outer runner removes this disposable fixture tree. Change only our
  # recorded exact directories after assertions; production packages stay 0500.
  local report digest path
- for report in host-stage event-stage update; do
+ for report in agent-stage event-stage update; do
   if ! test -f "$step_dir/$report.json" || test -L "$step_dir/$report.json"; then
    continue
   fi
@@ -62,7 +62,7 @@ stage() {
  test "$(stat -c '%a' "$(jq -er '.package.path' "$output")")" = 500
  test "$(stat -c '%a' "$(jq -er '.package.path' "$output")/plugin.json")" = 400
 }
-stage "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/host-stage.json"
+stage "$P_TEST_SOURCE/plugins/bundled/codex-adapter" "$step_dir/agent-stage.json"
 cp -R "$P_TEST_SOURCE/plugins/bundled/file-log" "$step_dir/event-source"
 chmod -R u+w "$step_dir/event-source"
 event_source="$step_dir/event-source"
@@ -79,16 +79,16 @@ test "$new_digest" != "$event_digest"
 expect_failure 'opened package bytes differ' p plugins update "$step_dir/offline.json" "$event_digest" "$event_source" "$event_digest"
 # Explicit trusted selections use printed paths/digests/grants, adding only
 # capability config reviewed here by the host owner.
-jq '{schema:"p.activation/v1",plugins:[.selection|.config={}]}' "$step_dir/host-stage.json" > "$step_dir/runtime.json"
+jq '{schema:"p.activation/v1",plugins:[.selection|.config={}]}' "$step_dir/agent-stage.json" > "$step_dir/agent.json"
 log="$step_dir/events.ndjson"
 jq --arg log "$log" '{schema:"p.activation/v1",plugins:[.selection|.config={path:$log,max_bytes:1048576}]}' "$step_dir/event-stage.json" > "$step_dir/events.json"
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$(command -v incus)")
-jq -n --arg state "$state" --arg runtime "$step_dir/runtime.json" \
+jq -n --arg state "$state" --arg agent "$step_dir/agent.json" \
  --arg events "$step_dir/events.json" --arg prefix "$endpoint_prefix" --argjson driver "$driver" --arg image "$image" \
  '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
  events:{activation_path:$events,plugin_id:"org.p.filelog"},
- runtime:{activation_path:$runtime,host_plugin_id:"org.p.tmux-host",driver:$driver,endpoint_prefix:$prefix,
+ runtime:{agent_adapter:{activation_path:$agent,plugin_id:"org.p.codex-adapter"},driver:$driver,endpoint_prefix:$prefix,
  disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,
  project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
@@ -129,9 +129,9 @@ key_sha=$(sha256sum "$state/session_keys/$uuid" | cut -d ' ' -f1)
 inc list "^p-$uuid$" --format json | jq -e 'length==1 and .[0].expanded_config["security.idmap.isolated"]=="true" and (.[0].expanded_config["security.nesting"] // "false")=="false"' >/dev/null
 stop_daemon
 expect_failure 'selected in trusted activation' p plugins remove "$step_dir/host.json" "$event_digest"
-host_digest=$(jq -er '.package.sha256' "$step_dir/host-stage.json")
-expect_failure 'durable session/operation/cache depends' p plugins remove "$step_dir/offline.json" "$host_digest"
-test -d "$(jq -er '.package.path' "$step_dir/host-stage.json")"
+agent_digest=$(jq -er '.package.sha256' "$step_dir/agent-stage.json")
+expect_failure 'durable session/operation/cache depends' p plugins remove "$step_dir/offline.json" "$agent_digest"
+test -d "$(jq -er '.package.path' "$step_dir/agent-stage.json")"
 p plugins update "$step_dir/host.json" "$event_digest" "$event_source" "$new_digest" > "$step_dir/update.json"
 jq -e --arg old "$event_digest" --arg new "$new_digest" '.previous_sha256==$old and .package.sha256==$new and .explicit_trusted_selection_required' "$step_dir/update.json" >/dev/null
 # Staging did not select the update: the old trusted activation is unchanged.

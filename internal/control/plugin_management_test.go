@@ -25,14 +25,21 @@ func TestPluginRemovalDurableDependenciesReopenAndUnknownProvenance(t *testing.T
 	if e = s.CheckPluginRemovalDependencies(ctx, digest); e == nil {
 		t.Fatal("unknown session selection permitted removal")
 	}
-	for _, selection := range []CreationSelection{{}, {HostID: "host", HostSHA256: "invalid"}, func() CreationSelection { v := testSelection(); v.AgentID = "agent"; return v }()} {
+	for _, selection := range []CreationSelection{{AgentID: "agent", AgentSHA256: "invalid"}, {AgentID: "agent"}} {
 		raw, _ := json.Marshal(CreationEvidence{Selection: selection})
 		if e = s.AdvanceOperation(ctx, op.ID, "blocked", "reserved", false, raw, "internal", ""); e != nil {
 			t.Fatal(e)
 		}
 		if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e == nil {
-			t.Fatal("empty/malformed live creator selection permitted removal")
+			t.Fatal("malformed live creator selection permitted removal")
 		}
+	}
+	empty, _ := json.Marshal(CreationEvidence{Selection: CreationSelection{}})
+	if e = s.AdvanceOperation(ctx, op.ID, "blocked", "reserved", false, empty, "internal", ""); e != nil {
+		t.Fatal(e)
+	}
+	if e = s.CheckPluginRemovalDependencies(ctx, strings.Repeat("f", 64)); e != nil {
+		t.Fatal("a live creator that pins no package blocked removal", e)
 	}
 	selection := testSelection()
 	selection.AgentID = "example.agent"

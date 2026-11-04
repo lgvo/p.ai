@@ -6,12 +6,14 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/lgvo/p.ai/internal/api"
 	"github.com/lgvo/p.ai/internal/control"
+	"github.com/lgvo/p.ai/internal/plugin"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/memory"
 	"github.com/lgvo/p.ai/internal/sshserver"
@@ -55,7 +57,7 @@ func newDriverFixture(t *testing.T, capabilities runtimedriver.Capabilities) *dr
 		t.Fatal(err)
 	}
 	world := memory.NewWorld(memory.Config{Capabilities: capabilities})
-	selection := control.CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
+	selection := control.CreationSelection{}
 	op, session, err := store.BeginSessionCreate(ctx, control.ReserveSessionRequest{Key: "driver", Project: "app", Branch: "work", Choice: "existing"},
 		string(world.BaseImage()), selection, func(context.Context, control.ReserveSessionRequest) (string, bool, error) {
 			return strings.Repeat("e", 40), true, nil
@@ -182,6 +184,27 @@ func (d gateProbe) Create(ctx context.Context, s runtimedriver.Session, at runti
 		}
 	}
 	return d.Driver.Create(ctx, s, at, g)
+}
+
+// Core hands the driver the selected agent adapter's files and nothing else,
+// and a creation pins that package alone: the session host is the driver's
+// own. Without an adapter, a session gets no assets and pins nothing.
+func TestSessionSpecCarriesOnlyTheSelectedAgentAdapter(t *testing.T) {
+	f := newDriverFixture(t, runtimedriver.Capabilities{})
+	if assets, selection := f.spec().Assets, f.l.selection(); len(assets) != 0 || selection != (control.CreationSelection{}) {
+		t.Fatalf("without an agent adapter the spec carries %+v and a creation pins %+v", assets, selection)
+	}
+	data := []byte("#!/bin/sh\nexit 0\n")
+	digest := "306c6ca7407560340797866e077e053627ad409277d1b9da58106fce4cf717cb"
+	f.l.agentPlan = &plugin.AssetPlan{PackageID: "org.p.codex-adapter", PackageSHA256: strings.Repeat("d", 64),
+		Files: []plugin.AssetFile{{Role: "p-codex-adapter", Destination: "/usr/libexec/p/codex-adapter", Mode: 0555, SHA256: digest, Data: data}}}
+	want := []runtimedriver.Asset{{Role: "p-codex-adapter", Mode: 0555, Data: data, SHA256: digest}}
+	if assets := f.spec().Assets; !reflect.DeepEqual(assets, want) {
+		t.Fatalf("spec carries %+v, want %+v", assets, want)
+	}
+	if selection := f.l.selection(); selection != (control.CreationSelection{AgentID: "org.p.codex-adapter", AgentSHA256: strings.Repeat("d", 64)}) {
+		t.Fatalf("a creation pins %+v", selection)
+	}
 }
 
 func TestCreationRecordsItsInitAttemptBeforeTheRuntimeIsInitialized(t *testing.T) {

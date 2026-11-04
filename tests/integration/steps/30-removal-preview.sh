@@ -63,26 +63,14 @@ on_error() {
 trap cleanup EXIT
 trap 'on_error "$?" "$LINENO"' ERR
 
-activate() {
-  local package="$1" target="$2" grant="$3" digest id
-  digest=$(p plugins conformance "$package" | jq -er '.sha256 | select(length==64)')
-  id=$(jq -er '.id' "$package/plugin.json")
-  jq -n --arg path "$package" --arg digest "$digest" --arg id "$id" --arg grant "$grant" \
-    '{schema:"p.activation/v1",plugins:[{id:$id,path:$path,sha256:$digest,grants:[$grant],config:{}}]}' > "$target"
-}
-activate "$P_TEST_SOURCE/plugins/bundled/tmux-host" "$step_dir/runtime.json" session.asset.install
-
 base=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base}" -eq 64
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_real")
 jq -n --arg state "$state" \
-  --arg runtime_activation "$step_dir/runtime.json" \
-  --arg host_id "$(jq -er '.plugins[0].id' "$step_dir/runtime.json")" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$base" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
-    runtime:{activation_path:$runtime_activation,
-      host_plugin_id:$host_id,driver:$driver,
+    runtime:{driver:$driver,
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
       base_image_fingerprint:$image,
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"

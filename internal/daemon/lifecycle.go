@@ -10,7 +10,6 @@ import (
 	"log"
 	"path/filepath"
 	"runtime/debug"
-	"slices"
 	"sync"
 	"time"
 
@@ -29,7 +28,6 @@ type lifecycle struct {
 	git                    *gitCapability
 	driver                 runtimedriver.Driver
 	supervisor             *supervise.Supervisor // runs the driver executable; Close stops it
-	hostPlan               plugin.AssetPlan
 	agentPlan              *plugin.AssetPlan
 	endpoints              *endpointManager
 	instanceID             string
@@ -80,26 +78,6 @@ var (
 // newLifecycle starts the runtime driver and supervises it until Close; a
 // first start that fails refuses the daemon's start.
 func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control.Store, git *gitCapability) (_ *lifecycle, err error) {
-	if err := privateTrustedFile(cfg.ActivationPath); err != nil {
-		return nil, fmt.Errorf("runtime activation: %w", err)
-	}
-	active, err := plugin.LoadActivation(cfg.ActivationPath)
-	if err != nil {
-		return nil, err
-	}
-	var hostSelection *plugin.Active
-	for i := range active {
-		if active[i].Package.Manifest.ID == cfg.HostPluginID {
-			hostSelection = &active[i]
-		}
-	}
-	if hostSelection == nil || hostSelection.Package.Manifest.Capability != "interactive-host" || hostSelection.Package.Manifest.Runtime.Kind != "assets" || len(hostSelection.Grants) != 1 || hostSelection.Grants[0] != "session.asset.install" {
-		return nil, errors.New("selected interactive host unavailable")
-	}
-	hostPlan, err := plugin.PlanAssets(*hostSelection)
-	if err != nil {
-		return nil, err
-	}
 	var agentPlan *plugin.AssetPlan
 	if cfg.AgentAdapter != nil {
 		if err := privateTrustedFile(cfg.AgentAdapter.ActivationPath); err != nil {
@@ -148,7 +126,7 @@ func newLifecycle(ctx context.Context, cfg control.RuntimeConfig, store *control
 	if err != nil {
 		return nil, err
 	}
-	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, supervisor: driver, hostPlan: hostPlan, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
+	l := &lifecycle{store: store, cfg: cfg, git: git, driver: driver, supervisor: driver, agentPlan: agentPlan, endpoints: endpoints, instanceID: id, ctx: ctx, working: map[string]bool{}, queueSlots: make(chan struct{}, 8), sessionLocks: map[string]chan struct{}{}, confinementCheck: driver.Check, changedPolicies: map[string]bool{}}
 	after := ""
 	for {
 		projects, next, e := store.ListProjects(ctx, after, 100)
@@ -452,12 +430,12 @@ func (l *lifecycle) dispatchLocked() {
 	}
 }
 
+// selection is the agent adapter a creation pins, if one is selected.
 func (l *lifecycle) selection() control.CreationSelection {
-	s := control.CreationSelection{HostID: l.hostPlan.PackageID, HostSHA256: l.hostPlan.PackageSHA256}
-	if l.agentPlan != nil {
-		s.AgentID, s.AgentSHA256 = l.agentPlan.PackageID, l.agentPlan.PackageSHA256
+	if l.agentPlan == nil {
+		return control.CreationSelection{}
 	}
-	return s
+	return control.CreationSelection{AgentID: l.agentPlan.PackageID, AgentSHA256: l.agentPlan.PackageSHA256}
 }
 
 func (l *lifecycle) environmentIntent() *control.EnvironmentIntent {
@@ -1374,15 +1352,14 @@ func (l *lifecycle) runtimeSpec(uuid, project, image string, grants []runtimedri
 	}
 }
 
-// sessionAssets are the files of the selected interactive host and agent
-// adapter packages, each named by its role.
+// sessionAssets are the files of the selected agent adapter package, each
+// named by its role; none without one.
 func (l *lifecycle) sessionAssets() []runtimedriver.Asset {
-	files := slices.Clone(l.hostPlan.Files)
-	if l.agentPlan != nil {
-		files = append(files, l.agentPlan.Files...)
+	if l.agentPlan == nil {
+		return nil
 	}
-	assets := make([]runtimedriver.Asset, 0, len(files))
-	for _, f := range files {
+	assets := make([]runtimedriver.Asset, 0, len(l.agentPlan.Files))
+	for _, f := range l.agentPlan.Files {
 		assets = append(assets, runtimedriver.Asset{Role: f.Role, Mode: f.Mode, Data: f.Data, SHA256: f.SHA256})
 	}
 	return assets

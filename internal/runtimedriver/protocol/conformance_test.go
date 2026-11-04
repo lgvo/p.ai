@@ -127,7 +127,7 @@ func (f *fixture) Restart() {
 
 func (f *fixture) Session(o conformance.SessionOptions) runtimedriver.Session {
 	f.next++
-	asset := []byte("#!/bin/sh\nexec attach\n")
+	asset := []byte("#!/bin/sh\nexec adapter\n")
 	sum := sha256.Sum256(asset)
 	s := runtimedriver.Session{
 		Ref:        runtimedriver.Ref{Kind: runtimedriver.KindSession, ID: fmt.Sprintf("00000000-0000-4000-8000-%012d", f.next)},
@@ -138,7 +138,7 @@ func (f *fixture) Session(o conformance.SessionOptions) runtimedriver.Session {
 		GitKey:     []byte("-----BEGIN OPENSSH PRIVATE KEY-----\nfixture\n-----END OPENSSH PRIVATE KEY-----\n"),
 		GitHostKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIFixtureFixtureFixtureFixtureFixtureFixture p",
 		Endpoints:  f.t.TempDir(),
-		Assets:     []runtimedriver.Asset{{Role: "p-attach", Mode: 0o555, Data: asset, SHA256: hex.EncodeToString(sum[:])}},
+		Assets:     []runtimedriver.Asset{{Role: "p-codex-adapter", Mode: 0o555, Data: asset, SHA256: hex.EncodeToString(sum[:])}},
 	}
 	if o.Grant {
 		dir := f.t.TempDir()

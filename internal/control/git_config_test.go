@@ -35,7 +35,7 @@ func TestRuntimeConfigRequiresConfinedBaseline(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"activation_path":"` + dir + `/runtime.json","host_plugin_id":"org.p.tmux-host","driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":`
+	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":`
 	for _, test := range []struct {
 		policy string
 		valid  bool
@@ -61,7 +61,7 @@ func TestRuntimeDriverIsAnExecutablePinnedByPathAndDigestWithItsOwnConfig(t *tes
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"activation_path":"` + dir + `/runtime.json","host_plugin_id":"org.p.tmux-host","endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
+	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
 	digest := strings.Repeat("0f", 32)
 	executable := `"path":"/opt/p/bin/p-runtime-incus","sha256":"` + digest + `"`
 	incusConfig := `{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}`
@@ -135,11 +135,39 @@ func TestGitDriverSelectsTheGitDriverByNameAndCarriesItsOwnConfig(t *testing.T) 
 	}
 }
 
+// The runtime driver runs the session host itself: host configuration
+// selects no host package, and a runtime block that names one is invalid.
+func TestRuntimeSelectsNoSessionHostPackage(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "host.json")
+	check := privateFixtureChecker(dir)
+	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
+	for _, tc := range []struct {
+		name, extra string
+		valid       bool
+	}{
+		{"none", "", true},
+		{"host package and its activation", `,"activation_path":"` + dir + `/runtime.json","host_plugin_id":"org.p.tmux-host"`, false},
+		{"host package", `,"host_plugin_id":"org.p.tmux-host"`, false},
+		{"activation", `,"activation_path":"` + dir + `/runtime.json"`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := os.WriteFile(path, []byte(base+tc.extra+`}}`), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := loadHostConfig(path, check)
+			if (err == nil) != tc.valid {
+				t.Fatalf("runtime config valid=%v err=%v", tc.valid, err)
+			}
+		})
+	}
+}
+
 func TestRuntimeAgentAdapterIsOnlyTrustedOptionalSelection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"activation_path":"` + dir + `/runtime.json","host_plugin_id":"org.p.tmux-host","driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
+	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
 	for _, tc := range []struct {
 		name, extra string
 		valid       bool
@@ -166,7 +194,7 @@ func TestRuntimeEnvironmentSelectsOnlySystemAndBuilderPool(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"activation_path":"` + dir + `/runtime.json","host_plugin_id":"org.p.tmux-host","driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
+	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
 	for _, tc := range []struct {
 		name, extra string
 		valid       bool

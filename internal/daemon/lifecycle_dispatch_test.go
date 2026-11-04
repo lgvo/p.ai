@@ -147,7 +147,7 @@ func dispatchGit(t *testing.T, repo string, args ...string) string {
 
 func dispatchBlockers(t *testing.T, ctx context.Context, store *control.Store) []api.Operation {
 	t.Helper()
-	selection := control.CreationSelection{HostID: "fixture", HostSHA256: strings.Repeat("b", 64)}
+	selection := control.CreationSelection{}
 	var ops []api.Operation
 	for i := 0; i < 8; i++ {
 		op, _, err := store.BeginSessionCreate(ctx, control.ReserveSessionRequest{Key: fmt.Sprintf("blocker-%d", i), Project: "app", Branch: fmt.Sprintf("blocker-%d", i), Choice: "existing"}, strings.Repeat("d", 64), selection, func(context.Context, control.ReserveSessionRequest) (string, bool, error) {

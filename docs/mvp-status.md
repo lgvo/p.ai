@@ -80,7 +80,8 @@ interfaces and this basic composition are sufficient for MVP; a separate
 agent-authored plugin is not a release gate. The [plugin contract](plugin-contract.md)
 now owns packaging, activation, compatibility, and the selected executable
 boundary. Event-handler and runtime executable methods and
-host/agent assets are validated. Selected VM48 exercised the production
+agent-adapter assets are validated; the tmux persistent host is the Incus
+runtime driver's own. Selected VM48 exercised the production
 package's exact bundled plugin catalog and CLI default activation through real
 session creation, fixture status reporting and Stop/Start with daemon restart.
 Stopped local base-image failed creations now have reviewed confirmed cleanup,
@@ -161,9 +162,9 @@ See [the current evidence](implementation-progress.md#tui-and-three-service-deve
 - Every base image implements the systemd contract: `p-session.target` starts
   `p-interactive.service`; the service activates the environment and supervises
   one persistent host; `/usr/libexec/p/attach` connects temporary terminals.
-- Tmux is the default persistent host. Detach/switch/transport loss does not
-  affect it. Host clean/fail exit is journaled and stops the container; Start
-  launches it again.
+- Tmux is the Incus driver's persistent host, part of the driver rather than a
+  plugin. Detach/switch/transport loss does not affect it. Host clean/fail
+  exit is journaled and stops the container; Start launches it again.
 - Trusted project policy is snapshotted immutably at creation. Comparison is
   `current`, `outdated`, or `invalid`; outdated warns and offers guided
   recreation, invalid blocks Start, and P never mutates grants live.

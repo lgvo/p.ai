@@ -34,10 +34,7 @@ var assetRoles = map[string]struct {
 	destination string
 	mode        uint32
 }{
-	"p-session.target":      {"/etc/systemd/system/p-session.target", 0644},
-	"p-interactive.service": {"/etc/systemd/system/p-interactive.service", 0644},
-	"p-attach":              {"/usr/libexec/p/attach", 0555},
-	"p-codex-adapter":       {"/usr/libexec/p/codex-adapter", 0555},
+	"p-codex-adapter": {"/usr/libexec/p/codex-adapter", 0555},
 }
 
 // PlanAssets creates a typed, content-pinned plan for a session image. It does
@@ -53,10 +50,10 @@ func PlanAssets(selected Active) (AssetPlan, error) {
 	if m.Runtime.Kind != "assets" || m.Placement != "internal-session" {
 		return plan, errors.New("selected package is not a session asset package")
 	}
-	if m.Capability != "interactive-host" && m.Capability != "agent-adapter" {
+	if m.Capability != "agent-adapter" {
 		return plan, errors.New("unsupported asset capability")
 	}
-	if !slices.Equal(selected.Grants, []string{map[string]string{"interactive-host": "session.asset.install", "agent-adapter": "agent.status.report"}[m.Capability]}) {
+	if !slices.Equal(selected.Grants, []string{"agent.status.report"}) {
 		return plan, errors.New("asset grant mismatch")
 	}
 	capture := make(map[string]bool, len(m.Assets))

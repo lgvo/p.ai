@@ -556,8 +556,8 @@ the open's outcome is unknown and names no terminal to settle, so the lease
 stays, refusing discard and delete but not Stop, until the session stops. A
 daemon restart ends attachments. No MVP RPC re-registers an existing terminal.
 
-The fixed attach program connects the terminal to the persistent host selected
-by trusted image/project configuration; tmux is the default. Attachment loss,
+The fixed attach program connects the terminal to the persistent host the
+runtime driver provides; the Incus driver's is tmux. Attachment loss,
 detach, or switching sessions ends only the temporary client channel. The
 persistent host remains supervised by systemd, and its exit stops the
 container. P never returns a shell string. Runtime mechanics are defined in

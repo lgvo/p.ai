@@ -80,12 +80,11 @@ readelf -d "$package_root/bin/p" > "$step_dir/p-dynamic-section"
 p plugins defaults "$log_file" > "$step_dir/activation.json"
 jq -e --arg catalog "$catalog" --arg log "$log_file" '
   .schema=="p.activation/v1" and
-  ([.plugins[].id]|sort)==["org.p.codex-adapter","org.p.filelog","org.p.tmux-host"] and
+  ([.plugins[].id]|sort)==["org.p.codex-adapter","org.p.filelog"] and
   all(.plugins[]; (.path|startswith($catalog+"/")) and (.sha256|length)==64 and (.grants|length)==1) and
   any(.plugins[]; .id=="org.p.filelog" and .config.path==$log)' "$step_dir/activation.json" >/dev/null
-p plugins list "$catalog" | jq -e '(.packages|length)==3 and (.rejected|length)==0' >/dev/null
-p plugins activate "$step_dir/activation.json" | jq -e 'length==3' >/dev/null
-p plugins plan-assets "$step_dir/activation.json" org.p.tmux-host > "$step_dir/host-plan.json"
+p plugins list "$catalog" | jq -e '(.packages|length)==2 and (.rejected|length)==0' >/dev/null
+p plugins activate "$step_dir/activation.json" | jq -e 'length==2' >/dev/null
 p plugins plan-assets "$step_dir/activation.json" org.p.codex-adapter > "$step_dir/agent-plan.json"
 test ! -e "$log_file"
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
@@ -94,8 +93,7 @@ jq -n --arg state "$state" --arg activation "$step_dir/activation.json" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$image" \
   '{schema:"p.host/v1",state_dir:$state,
     git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
-    runtime:{activation_path:$activation,
-      host_plugin_id:"org.p.tmux-host",agent_adapter:{activation_path:$activation,plugin_id:"org.p.codex-adapter"},
+    runtime:{agent_adapter:{activation_path:$activation,plugin_id:"org.p.codex-adapter"},
       driver:$driver,endpoint_prefix:$prefix,
       disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,
       environment:{system:"x86_64-linux",builder_storage_pool:"builders"},

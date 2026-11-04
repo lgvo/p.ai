@@ -2,14 +2,14 @@
 
 `image.nix` is the production base-image module. It installs the local Nix
 daemon/client, Git, OpenSSH (`/usr/bin/ssh` for the Git SSH wrapper), tmux,
-Codex `0.151.0`, Python, and the root-owned runtime kit. The interactive-host package is authored in
-`plugins/bundled/tmux-host`; only its three declared assets should be staged
-into a package directory for conformance and digest-pinned activation.
+Codex `0.151.0`, Python, and the root-owned runtime kit. The tmux session
+host, its two systemd units and its attach program, is the Incus runtime
+driver's own, authored in `internal/runtimedriver/incus/host`.
 
 Trusted session assembly, before the first container start, installs the
-selected asset plans with their modes and root ownership, and writes a regular,
-root-owned, non-writable-by-p `/etc/p/session.json` (mode `0644` or tighter while
-remaining readable by p). For the base-only selection it has this shape:
+session host's files and the selected agent adapter with their modes and root
+ownership, and writes a regular, root-owned, non-writable-by-p
+`/etc/p/session.json` (mode `0644` or tighter while remaining readable by p). For the base-only selection it has this shape:
 
 ```json
 {"schema":"p.runtime-session/v1","activation":"base","command":["/run/current-system/sw/bin/bash","-l"]}
@@ -42,14 +42,14 @@ standard `files dns` lookup; additional NSS modules are excluded by the
 [runtime substrate contract](../docs/runtime-isolation.md#non-activating-workspace-access).
 
 NixOS links `/etc/systemd/system` to an immutable generated store tree, so the
-image provides fixed unit links from the plan's visible destinations to
+image provides fixed unit links from the units' visible destinations to
 `/etc/p/assets/p-session.target` and `/etc/p/assets/p-interactive.service`.
 Trusted assembly writes verified bytes to those exact mutable targets and
 checks that the fixed paths resolve to them, rather than trying to replace a
 store-owned symlink. NixOS adds a stateless `Wants=p-session.target` dependency
 to `multi-user.target`; before assembly the unit link is dangling, so the base
 image alone does not start the host. Boot-time tmpfiles gives the attach
-asset the fixed path `/usr/libexec/p/attach` through a root-owned link to
+program the fixed path `/usr/libexec/p/attach` through a root-owned link to
 `/etc/p/assets/p-attach`. The runtime driver's own Git SSH wrapper similarly
 appears at `/usr/libexec/p/git-ssh` through `/etc/p/assets/p-git-ssh`.
 Assembly writes verified bytes to those mutable targets.

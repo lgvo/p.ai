@@ -9,14 +9,18 @@ import (
 	"testing"
 )
 
+// testSelection is the plugin selection of a creation whose session has no
+// agent adapter: it pins nothing.
 func testSelection() CreationSelection {
-	return CreationSelection{HostID: "host", HostSHA256: strings.Repeat("b", 64)}
+	return CreationSelection{}
 }
 
-func TestCreationSelectionBindsOptionalAgentPackage(t *testing.T) {
+// A creation pins the agent adapter its session gets, by ID and digest
+// together, and nothing else: the session host is the runtime driver's.
+func TestCreationSelectionPinsOnlyTheOptionalAgentPackage(t *testing.T) {
 	selection := testSelection()
 	if !selection.Valid() {
-		t.Fatal("base selection invalid")
+		t.Fatal("selection without an agent adapter invalid")
 	}
 	selection.AgentID = "org.p.codex-adapter"
 	if selection.Valid() {

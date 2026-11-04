@@ -189,7 +189,9 @@ and accepts temporary attachments, such as tmux.
 - **Boundaries:** A temporary attachment client is not the persistent
   interactive host.
 - **Rules:** Detachment leaves the host alive. Host exit or failure shuts down
-  the session container. MVP ships tmux as the default implementation.
+  the session container. The runtime driver provides the host: the Incus
+  driver runs tmux from its own systemd units and attach program, and no
+  plugin provides or selects a host.
 - **Avoid:** `direct`, which is not an MVP host.
 
 ### Plan
@@ -302,7 +304,8 @@ the driver protocol.
   shipped with P; the daemon holds nothing of it but the driver interface.
   Every runtime effect goes through it: images, sessions, their removal, the
   workspace edits of a rename, terminals, project services, the boundary check
-  and the inventory that admission and the proofs of absence read.
+  and the inventory that admission and the proofs of absence read. The
+  session's persistent interactive host is its own, not a plugin's.
 - **Rules:** It acts only on objects carrying its P instance's labels, stores
   those labels immutably, and claims nothing after an error. Core identifies a
   runtime by the driver's opaque incarnation, which stays the same across stop
