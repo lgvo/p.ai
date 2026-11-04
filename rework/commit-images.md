@@ -109,7 +109,7 @@ disposable builder from the pinned base image, the Nix steps that realize the
 commit's devShell (today's Nix environment plugin folds into this), and the
 published image, with no builder left behind. The builder's input is a Git
 bundle of the commit, which it clones into `/workspace`; the
-[source driver](source-driver.md)'s `Export` writes it, and gitservice until that driver lands in step 9. The host no
+[source driver](source-driver.md)'s `Export` writes it, since step 9's S4 (842f07b); gitservice wrote it before. The host no
 longer checks the commit's tree (gitservice's snapshot.go), since the checkout
 happens in the isolated builder. The builder makes the clone without
 `git clone`: it initializes an empty repository, fetches the bundle's one

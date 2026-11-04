@@ -4,14 +4,20 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 
 ## Summary
 
-**Today** P ships six plugin packages. Before this step, steps 1 and 8
-fold two of them, the WASI runtime and environment modules, into the
-[runtime driver](runtime-driver.md). Of the other four, source-git is a WASI
-module, file-log is a manifest that names an append core performs, and
-tmux-host and codex-adapter are files P installs into sessions. A WASI module
+**Before the rework** P shipped six plugin packages. Steps 1 and 8 folded
+two of them, the WASI runtime and environment modules, into the
+[runtime driver](runtime-driver.md). Of the other four, source-git was a WASI
+module, file-log a manifest that names an append core performs, and
+tmux-host and codex-adapter files P installs into sessions. A WASI module
 runs in wazero with no ambient authority and reaches the host only through a
 broker that core reauthorizes, so it cannot exceed its grant. It also decides
 almost nothing.
+
+**Landed so far:** step 9's source driver replaced source-git, whose
+package, broker and module went in S5 (e240457), and plugin part 1
+(6e43794) made tmux-host's files the Incus driver's own. P now ships two
+packages, file-log and codex-adapter. Part 2, the rest of the proposal
+below, is in progress.
 
 **Decided by the maintainer on 2026-11-02:**
 
@@ -31,7 +37,7 @@ almost nothing.
 **Proposed:**
 
 - **tmux-host's files move to the Incus driver.** Session hosts are no longer
-  selected separately.
+  selected separately. Landed in part 1.
 - **The event handler becomes the one executable plugin capability:** a
   native process the daemon starts and talks to over the driver's protocol.
 - **The Codex adapter stays a package of files**, handed to the driver in
@@ -47,10 +53,10 @@ accepted this on 2026-11-02 and keeps OS confinement as a later improvement
 ## Before and after
 
 ```text
-Before (as step 8 leaves it)
+Before step 9
 internal/daemon
 ├─ gitservice ─┬─ plugin.RunSourceGit ─► git.wasm in wazero ─► broker ─► git   9 command kinds
-│              └─ git directly                                                 reads, snapshots
+│              └─ git directly                                                 reads, bundles
 ├─ events ─────┬─ file-log manifest ─► core appends the file
 │              └─ handler.wasm in wazero ─► broker ─► core appends the file
 └─ asset plans: tmux-host, source-git's p-git-ssh, codex-adapter ─► the driver's guest assembly
@@ -63,9 +69,9 @@ internal/daemon
      └─ Session.Assets: the codex-adapter package
 ```
 
-| | Today | After |
+| | Before the rework | After |
 |---|---|---|
-| Bundled packages | Six | Two: file-log and codex-adapter |
+| Bundled packages | Six | Two: file-log and codex-adapter, since part 1 |
 | Executable plugins | WASI modules in wazero, one short-lived instance per call | Native processes, one long-lived process per selected plugin |
 | What contains them | The WASI sandbox and the broker | Trusted selection, protected files and the digest; the OS account P runs as |
 | How they talk to P | One JSON command on stdin, broker calls, one JSON result on stdout | JSON-RPC 2.0 over a Unix socket pair, as the driver does |
@@ -88,20 +94,34 @@ selected, pinned and launch-checked like the runtime driver and executable
 plugins ([Trust](#trust)). And `p-git-ssh` stops being a plugin file;
 source-driver.md places it.
 
+All three landed with the source driver. S5 (e240457) removed the package,
+its broker, `plugin.RunSourceGit`, the `source-git` capability and the
+`git.project` grant, and made `p-git-ssh` a file the Incus driver installs
+itself (internal/runtimedriver/incus/assembly.go); S7 (4e3a0c0) made the
+driver the launch-checked executable `p-source-git`.
+
 ### tmux-host's files move to the Incus driver
 
 The two units and `p-attach` define how the session host runs: they call
-runtime-kit and tmux, and attachment compares the guest's files with the
-selected package's bytes (`verifyAttachAssets` in
-internal/runtimedriver/incus/attach.go). A replacement package can therefore
-change unit settings or attach options today. By the maintainer's decision, how a
+runtime-kit and tmux, and before part 1 attachment compared the guest's
+files with the selected package's bytes (`verifyAttachAssets` in
+internal/runtimedriver/incus/attach.go), so a replacement package could
+change unit settings or attach options. By the maintainer's decision, how a
 runtime runs the session host is the runtime's own business
 ([runtime-driver.md](runtime-driver.md)); a Kubernetes driver would not run
 systemd units at all. So the three files join the Incus driver, and
 `runtime.host_plugin_id` and the session's host pin go. Customizing the host,
-which a replacement package allows today, then means changing the driver or
+which a replacement package allowed, then means changing the driver or
 a setting it offers. This answers what runtime-driver.md left to this
 document: session hosts are not selected separately.
+
+Landed in part 1 (6e43794): the files are the Incus driver's own, embedded
+from internal/runtimedriver/incus/host. The driver installs them in every
+session, and `verifyAttachAssets` checks the guest's copies against them
+before an attachment. `runtime.host_plugin_id` went, and with it
+`runtime.activation_path`, the `interactive-host` capability and its grant,
+and `CreationSelection`'s host fields: a creation pins only the agent
+adapter.
 
 ### The event handler becomes an executable plugin
 
@@ -131,8 +151,9 @@ in the session
 ([communication boundaries](../docs/communication-boundaries.md#session-rpc-audience)),
 so the session container is what contains it. Only the delivery changes: core
 hands the verified file to the driver in `Session.Assets`, and the Incus
-driver installs it at today's `/usr/libexec/p/codex-adapter`. The grant list
-goes; the creation pin and runtime-kit's byte check stay.
+driver installs it at today's `/usr/libexec/p/codex-adapter`. Part 1 found
+that step 8 had already made this change. The grant list goes; the creation
+pin and runtime-kit's byte check stay.
 
 **The session RPC keeps its per-message `v`.** [wire-types.md](wire-types.md)
 left this to step 9. The adapter opens one connection per report and sends one
@@ -154,8 +175,9 @@ settle.
 
 ### Protocol
 
-The driver's mechanism, in one package the driver client and plugin clients
-share:
+The driver's mechanism, in one package the driver clients and plugin clients
+share (internal/driverwire, which step 9's S7 factored out of the runtime
+driver's protocol for both drivers):
 
 - the daemon starts the entry with no inherited environment or arguments and
   one end of a Unix socket pair, and speaks JSON-RPC 2.0 over it in both
@@ -163,7 +185,8 @@ share:
   [source driver](source-driver.md) also gets the daemon's `HOME` and
   `SSH_AUTH_SOCK`, because it reaches origins with the daemon account's
   OpenSSH configuration, known hosts and agent, as gitservice's origin runner
-  does today (`originEnv` in internal/gitservice/origin.go);
+  did with `originEnv` before step 9 (since S7, `inherited` in
+  internal/sourcedriver/supervise);
 - in the hello, P names the protocol version, the capability and the plugin's
   config, and the plugin answers with its version; a mismatch or a refused
   config stops the start;
@@ -338,11 +361,13 @@ P's account reaches it through group membership.
 
 - A default installation writes the same events file and installs the Codex
   adapter at the same path.
-- Host configuration: `git.activation_path`, `git.source_plugin_id` and
-  `runtime.host_plugin_id` go; `events` and `runtime.agent_adapter` take a path, a digest and config
-  instead of an activation file and a plugin ID.
-- `p plugins defaults` covers two packages; `activate`, `plan-assets` and
-  `emit` go; `run-event` reads its selection from host configuration.
+- Host configuration: `git.activation_path` and `git.source_plugin_id` go
+  (gone in S5), and so does `runtime.host_plugin_id` (gone in part 1, with
+  `runtime.activation_path`); `events` and `runtime.agent_adapter` take a
+  path, a digest and config instead of an activation file and a plugin ID.
+- `p plugins defaults` covers two packages (since part 1); `activate`,
+  `plan-assets` and `emit` go; `run-event` reads its selection from host
+  configuration.
 - A WASI event handler no longer runs; it must be rebuilt as a native
   executable.
 - Fresh installs only, by the maintainer's decision: an activation file is
@@ -354,9 +379,9 @@ P's account reaches it through group membership.
   `github.com/tetratelabs/wazero`, which only internal/plugin imports.
 - `p.command/v1`, `p.command-result/v1`, `p.broker/v1`, `p.asset-plan/v1`,
   `p.activation/v1`, the `p_broker_v1.call` import, and grants.
-- The source-git and tmux-host packages, the WASI example and fixtures, and
-  the `wasip1` builds.
-- The host fields of `CreationSelection`.
+- The source-git and tmux-host packages, gone in S5 and part 1; the WASI
+  example and fixtures, and the `wasip1` builds.
+- The host fields of `CreationSelection`, gone in part 1.
 
 ## Departures from agreements
 
@@ -383,11 +408,12 @@ P's account reaches it through group membership.
 ## Effects on other rework documents
 
 - [runtime-driver.md](runtime-driver.md): "`p plugins defaults` lists four
-  packages instead of six" becomes two; "tmux from the interactive-host
-  package" becomes the driver's own files;
-  `Session.Assets` carries only the agent adapter. "Repositories, requests
-  and plugins never reach it" holds for the driver's socket pair, but an executable plugin running as P's
-  account can open the Incus user socket. Whether a session's creation pins
+  packages instead of six" becomes two, "tmux from the interactive-host
+  package" the driver's own files, and `Session.Assets` carries only the
+  agent adapter, all three applied there since part 1. "Repositories,
+  requests and plugins never reach it" holds for the driver's socket pair,
+  but an executable plugin running as P's account can open the Incus user
+  socket. Whether a session's creation pins
   the driver's digest is not yet said there.
 - [wire-types.md](wire-types.md): the session RPC keeps `v`, as the
   maintainer decided there.

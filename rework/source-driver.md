@@ -4,16 +4,18 @@ Status: proposed, 2026-11-02. Part of the [interface rework plan](REWORK-PLAN.md
 
 ## Summary
 
-**Today** P's Git work has no single owner. `internal/gitservice` keeps a
-bare repository per project under `STATE/repositories`, serves them through a
-Wish SSH server, and runs `git` itself for reads, loss analysis, snapshots and
-the transport. Nine command kinds go through the WASI source-git module
-(plugins/bundled/source-git), which decides nothing: each broker call runs Git
-with arguments core chose, and core checks the outcome. The daemon calls
-gitservice directly and removes a project's repository itself (`os.RemoveAll`
-in project_delete_process.go). gitservice in turn reads operations and
-sessions from SQLite to authorize two kinds of head creation. Git authority
-(principals, leases, ref guards, unborn grants) lives in `control.Store`.
+**Before step 9** P's Git work had no single owner. `internal/gitservice`
+kept a bare repository per project under `STATE/repositories`, served them
+through a Wish SSH server, and ran `git` itself for reads, loss analysis,
+snapshots and the transport. Nine command kinds went through the WASI
+source-git module (plugins/bundled/source-git), which decided nothing: each
+broker call ran Git with arguments core chose, and core checked the outcome.
+The daemon called gitservice directly and removed a project's repository
+itself (`os.RemoveAll` in project_delete_process.go). gitservice in turn read
+operations and sessions from SQLite to authorize two kinds of head creation.
+Git authority (principals, leases, ref guards, unborn grants) lives in
+`control.Store`, before and after. Where this document says "today", it
+means before step 9.
 
 **Decided by the maintainer on 2026-11-02:**
 
@@ -62,17 +64,28 @@ its keys, and the origin URL and observations. The driver ships as
 
 **What users notice:** no workflow changes. The `git` block of host
 configuration keeps `listen` and gets `driver: {path, sha256, config}` instead
-of `activation_path` and `source_plugin_id`. `system.inspect` names the driver
+of `activation_path` and `source_plugin_id`; the bundled driver's `config`
+names the `git` and `ssh` it runs. `system.inspect` names the driver
 instead of the source plugin, and `p plugins defaults` no longer lists
 source-git. Origin access still uses the daemon account's SSH agent and
 configuration.
+
+**Landed** in step 9, in the seven migration steps S1 to S7 (fd4a4a8 to
+4e3a0c0): the interface, with what the sketch left open filled in; the
+bundled driver in internal/sourcedriver/git, run as the executable
+`p-source-git`; P's SSH server as a core package, internal/sshserver; and
+the protocol `p.source-driver/v1`, built on internal/driverwire, which S7
+factored out of the runtime driver's protocol and launcher so that both
+drivers share them. Each section below says where the code departs from
+the design, and [Answers that changed](#answers-that-changed) lists what
+clients see differently.
 
 ## What changes owner
 
 Only effects whose owner or guarantee changes; the rest stays where
 [Who does what](#who-does-what) puts it.
 
-| Effect | Today | After |
+| Effect | Before step 9 | After |
 |---|---|---|
 | **Repositories** | | |
 | Create with HEAD on `main`; check the repository before every use | `EnsureBare` (WASI `git.project.ensure`), `checkRepository` in gitservice | `CreateRepository`; the checks inside every call |
@@ -164,7 +177,8 @@ Three ideas carry it:
   deleted only at its incarnation, a push to the origin only creates or
   fast-forwards.
 
-The sketch is illustrative.
+The interface as step 9 landed it, abbreviated from
+internal/sourcedriver/driver.go.
 
 ```go
 package sourcedriver // internal/sourcedriver
@@ -212,17 +226,42 @@ type Driver interface {
 	Settle(ctx context.Context, e Effect) (Settlement, error)
 }
 
+type Description struct {
+	Backend  string   // where the driver keeps P's repositories; core pins it
+	Version  string   // the driver's own version, for display
+	Commands []string // the first words of the SSH commands ServeGit serves
+}
+
+const (
+	MaxHeads         = 1024             // Branches
+	MaxLosingCommits = 256              // LosingCommits
+	MaxOriginRefs    = 1024             // ObserveOrigin
+	ExportDeadline   = 10 * time.Minute // Export: the ceiling of P's Git service
+	MaxPlan          = 256              // WorkspaceEdits.Plan, in bytes
+)
+
 type OID string // a commit ID; core only stores and compares it
 
 type Name struct {
-	Kind  NameKind // branch, renamed or retained branch, origin ref, creation source, publication destination, origin URL or commit ID
+	Kind  NameKind // branch, rename-branch, origin-ref, creation-source, publication-destination, origin-url or commit
 	Value string   // within core's bounds
+}
+
+// InvalidName is CheckNames' refusal; it matches ErrInvalid.
+type InvalidName struct {
+	Index int // the position of the first value at fault
+	Name  Name
 }
 
 type Repository struct {
 	Project     string
 	Exists      bool
 	Incarnation string // opaque; new when the repository is made again
+}
+
+type Head struct {
+	Name string // refs/heads/<Name>
+	Tip  OID
 }
 
 type Commit struct {
@@ -235,6 +274,14 @@ type WorkspaceRename struct {
 	Old, New string // branch names
 	Goal     Goal   // prepared (backup written), renamed, or done (backup removed)
 	Plan     string // empty, or the Plan an earlier call of this rename returned
+	User     int    // the session user's UID and GID, who owns the clone
+}
+
+// WorkspaceMismatch is RenameWorkspace's refusal of a clone whose branch or
+// upstream is not the one the rename names. It holds only validated names or
+// fixed markers.
+type WorkspaceMismatch struct {
+	Field, Expected, Actual string
 }
 
 type WorkspaceFile struct { // a path in the clone, as the runtime driver read it
@@ -246,6 +293,12 @@ type WorkspaceEdits struct {
 	Read  map[string]int64 // paths to read, each within its size bound, before calling again; nothing else is set
 	Edits []WorkspaceFile  // otherwise the edits, in order, an absent File removing; none: the goal holds
 	Plan  string           // opaque to core; the same on every call of one rename
+}
+
+type Stream struct { // the SSH channel of one exec command
+	In  io.Reader
+	Out io.Writer
+	Err io.Writer
 }
 
 // Open is core's authorization of one service, called once before any Git
@@ -288,16 +341,52 @@ The errors are `ErrUnknownOutcome` (the effect may have happened; settle it),
 (no such repository), `ErrLimit` (a bound was exceeded) and `ErrUnavailable`
 (the backend or the origin cannot be reached).
 
+Where the landed interface fills in or departs from the proposal:
+
+- **`Description`** has three fields: `Backend`, which core pins; `Version`,
+  which `system.inspect` shows; and `Commands`, the words core's SSH server
+  routes to `ServeGit`. The bundled driver describes backend `git`, version
+  `1`, and `git-upload-pack` and `git-receive-pack`.
+- **Two typed refusals.** `*InvalidName` names the first value at fault by
+  its position, so core answers `invalid` with that value's field.
+  `*WorkspaceMismatch` refuses a clone on another branch or upstream, which
+  core records with reason `workspace_mismatch`.
+- **`WorkspaceRename.User`**, the session user who owns the clone, whose
+  UID and GID the edits carry; core passes 1000.
+- **`Stream`**, the SSH channel's input, output and standard error.
+- **Seven name kinds**, one per rule: `branch`, `rename-branch` (a branch a
+  rename creates or a retained branch a change names, under a stricter
+  rule), `origin-ref`, `creation-source`, `publication-destination`,
+  `origin-url` and `commit`. A creation source comes back as a `branch` or a
+  `commit`, and a destination as a `publication-destination` whose value is
+  the origin branch's name.
+- **The bounds are constants** of the contract, with the values the
+  guarantees below name.
+- **`Head{Name, Tip}`** names a head without `refs/heads/`; core adds the
+  prefix only for the unchanged wire format of `project.branches`. The
+  relations keep the API's strings (`destination_contains`,
+  `fast_forward`).
+- **`DeleteRepository` of an absent repository** succeeds without calling
+  its gate.
+- **The bundled driver's incarnation** is a random token of 32 hex digits in
+  a `p-incarnation` file inside the bare repository, written before the
+  repository is renamed into its address. Every operation requires the
+  file, so a repository made without it is refused.
+- **`Close`**, on the bundled driver only, ends every Git service the driver
+  runs and refuses later ones. `p-source-git` calls it when its connection
+  ends; what a driver killed outright leaves running is the subject of
+  [The Git service and ref guards](#the-git-service-and-ref-guards).
+
 ### What each operation guarantees
 
 | Operation | The driver must |
 |---|---|
 | All | Act only on P's repositories in its configured storage. Read native state fresh on every call; after an error, claim nothing. Never run code or configuration a repository can change: hooks, filters, repository config, submodules, lazy fetch. Never prune an object: P has no garbage collection, and a pending creation relies on an origin commit that no head holds yet. Accept every value `CheckNames` accepts, refuse others with `ErrInvalid`, and return only names it accepts. |
-| `Check` | Prove that its storage is private to P's account and that its Git tools are present, at start and before every mutation; refuse rather than proceed. |
-| `CheckNames` | Decide from each value and its kind only, offline, the same way every time. Return each value as core uses it: a creation source as a branch or a commit ID, so core picks `InspectBranch` or `InspectCommit`, and a publication destination as its branch name, from which core builds the `origin-branch` target ([plan-shape.md](plan-shape.md#targets)); core strips no prefix itself. The bundled driver keeps today's rule for each field: `validBranch`, or `ValidateRenameBranch` with `git check-ref-format` for renamed and retained branches; `ValidGitOriginRef`; a creation source that is a head ref or a commit ID; `ValidateOriginURL`; `validOID`. |
+| `Check` | Prove that its storage is private to P's account and that its Git tools are present, at start and before every mutation; refuse rather than proceed. As landed, the bundled driver's `Check` proves the storage and runs `git --version`, and a mutation proves the storage again; neither runs `ssh`, whose absence shows only when origin work runs it. |
+| `CheckNames` | Decide from each value and its kind only, offline, the same way every time. Return each value as core uses it: a creation source as a branch or a commit ID, so core picks `InspectBranch` or `InspectCommit`, and a publication destination as its branch name, from which core builds the `origin-branch` target ([plan-shape.md](plan-shape.md#targets)); core strips no prefix itself. The bundled driver keeps today's rule for each field: `validBranch`, or `ValidateRenameBranch` with `git check-ref-format` for renamed and retained branches; `ValidGitOriginRef`; a creation source that is a head ref or a commit ID; `ValidateOriginURL`; `validOID`. The rules now live in internal/sourcedriver/gitnames, which the in-memory driver shares. |
 | `CreateRepository` | Converge, so a repeated call is safe: make the repository complete or not at all, keep an existing one, and leave its default branch `main`, as `git.project.ensure` does. |
 | `DeleteRepository` | Act only on the given incarnation; afterwards the project's repository is absent. Safe to call again at the same incarnation. |
-| `Branches` | Return every head as one observation, in byte order, each tip a commit present in P's repository, or an error; `ErrLimit` above 1024 heads. The bundled driver reads twice and compares, as today's loss code does. |
+| `Branches` | Return every head as one observation, in byte order, each tip a commit present in P's repository, or an error; `ErrLimit` above 1024 heads. The bundled driver reads twice and compares, as today's loss code does; heads that moved between the reads are an error that matches `ErrConflict`, which core answers `retry`, reason `refs_moved`. |
 | `InspectBranch` | Report the exact head, absent, or `ErrConflict` when a symbolic ref holds the name. |
 | `CreateBranch` | Create the head only if nothing holds the name, a dangling symbolic ref included, and only at a commit present in P's repository; an existing head is `ErrConflict` even at the same tip. Call the gate before the effect. |
 | `DeleteBranch` | Delete the head only while it names exactly `tip`; call the gate before the effect; read absence back. |
@@ -338,6 +427,14 @@ replay lookup, so a recorded request is still answered from SQLite alone, and
 before it records anything. A bad value is refused `invalid`, with its field
 ([errors.md](errors.md)).
 
+As landed, the request types check only these bounds (`BoundedName` and the
+`Max…Bytes` constants in internal/api), and `control.CheckNames` maps an
+`*InvalidName` to its field. One client departs: the CLI still parses branch
+names and commit IDs by the bundled driver's rules (`api.ValidBranch` and
+`api.ValidOID`, over gitnames), so with a driver of another backend it could
+refuse a name the driver accepts
+([debt](../docs/debts/structure.md#the-cli-parses-branch-names-and-commit-ids-by-the-bundled-drivers-rules)).
+
 ### The Git service and ref guards
 
 Guards stay core's. `AcquireGitLease`, inside `open`, refuses a receive
@@ -365,6 +462,50 @@ outcome.
   service ended at once.
 - No push is replayed: the session's Git client sees a failed push and
   decides for itself.
+
+As landed, core's side is internal/sshserver. A `ServeGit` that returns
+without error, or with a driver refusal (`ErrInvalid`, `ErrLimit`,
+`ErrConflict` or `ErrNotFound`), releases the lease at once. Any other error
+counts as a possibly lost service: core asks `Settle` at once, then after
+waits that double from 100 ms up to 5 seconds, and releases the lease only
+on `Applied`. A daemon that stops first keeps the lease until it exits;
+leases are not durable, so a restarted daemon holds none.
+
+**What a dead driver leaves running** departs from the design: S1 landed
+the service records below, and S7 the origin commands' records and the
+launcher's group kill. The bundled driver must be able to end one service
+alone, on its deadline, its context or `Close`, so each Git service runs in
+a process group of its own, and so does each Git command against an origin,
+whose `ssh` and `pack-objects` would otherwise go on alone. A driver killed
+outright does not take those groups with it, so the driver keeps durable
+records of them in its storage (`git-services` in the state directory):
+
+- A service is recorded before any client input reaches it: its ID, the
+  driver that runs it, and its Git's process ID with the boot ID and the
+  process's start time, which tell it from a later process that reuses the
+  ID.
+- An origin command is recorded before Git starts, since Git contacts the
+  origin at once. Its record holds a random token, which the command carries
+  in its environment as `P_SOURCE_ORIGIN` and passes to what it starts. A
+  driver that cannot write the record starts nothing, so `Publish` then
+  fails before its gate.
+- `Check`, which the supervisor runs after every start, ends what earlier
+  drivers over the same storage left: it kills each recorded service's group
+  while its Git is still the recorded process, and the group of every
+  process that carries a recorded origin token, failing after 10 seconds if
+  one survives, and removes the records.
+- `Settle` answers `Unknown` for a service while this driver runs it or a
+  record names a Git that is still alive, and `Applied` otherwise.
+- The launcher still kills the driver's own group: once the driver exited, it
+  waits without reaping it (`waitid` with `WNOWAIT`), so the group's ID stays
+  reserved, kills the group, and only then reaps it. The Git commands the
+  driver ran in its own group, such as a head's compare-and-swap, therefore
+  end before a new driver serves, which settling a head effect relies on.
+
+Two gaps remain. Between proving a recorded Git alive and the kill, its
+process ID can be reused by a new group leader, which only pidfds would
+close. A process an origin command started that clears its environment and
+leaves the command's group escapes the kill.
 
 The head compare-and-swap remains the authority, as today: lifecycle code
 creates and deletes heads at exact values, so a push that a guard missed makes
@@ -400,7 +541,8 @@ The runtime driver's rules apply to P's repositories:
    `old-ref-delete-issued`; retained rename's and retained delete's issued
    phases; session deletion's
    `branch-delete-issued`; project deletion's `DeleteIssued`; publication's
-   `attempted`.
+   `push-issued` phase, which replaced its `attempted` record when step 4
+   made publication an operation.
 2. **Only a positive outcome settles.** An issued phase advances only on
    exact presence or absence, as today.
 3. **An effect is never sent again blindly.** Head creations and deletions
@@ -460,17 +602,79 @@ driver:
 
 - **Credentials.** It holds read and write access to every repository and the
   daemon account's origin access: SSH agent, `~/.ssh` configuration, known
-  hosts and network. gitservice holds the same inside the daemon today. The
-  daemon passes it exactly `HOME` and `SSH_AUTH_SOCK`, as `originEnv` does
-  today; its package pins `git` and `ssh`, since it inherits no `PATH`. P
-  never hands it SQLite, session keys, the SSH host key or the Incus socket,
-  though as P's account with no sandbox it could open them.
+  hosts and network. Before step 9, gitservice held the same inside the
+  daemon. The daemon passes it exactly `HOME` and `SSH_AUTH_SOCK`, as
+  gitservice's `originEnv` passed them to origin commands; since it inherits
+  no `PATH`, its `config` names the `git` and `ssh` it runs. P never hands
+  it SQLite, session keys, the SSH host key or the Incus socket, though as
+  P's account with no sandbox it could open them.
 - **The hook.** The pre-receive script in the driver's storage executes the
   driver instead of `p git-hook`, and talks to it over a per-push socket, as
-  it talks to the daemon today.
+  it talked to the daemon before.
 - **The backend pin**, as decided in the Summary: a driver of another backend
   would find none of the instance's repositories. Sessions no longer pin a
   source package at creation.
+
+As S7 landed them:
+
+**Configuration.** `git.driver` is `{path, sha256, config}`, the same type
+as `runtime.driver`, `DriverConfig` in internal/control/config.go. The
+bundled driver's `config` is exactly `{git, ssh}`, each an absolute clean
+path, and the driver refuses anything else. The NixOS module runs the
+package's own `p-source-git`, pinned by its digest, when `git.driver` names
+no path, and then fills in Nixpkgs' `git` and OpenSSH's `ssh` unless the
+settings name them. VM scenarios name the `git` and `ssh` on their `PATH`,
+resolved with `readlink -f` (tests/integration/source-driver-config.sh).
+
+**The protocol** (internal/sourcedriver/protocol) is `p.source-driver/v1`
+over internal/driverwire, which S7 factored out of the runtime driver's
+protocol so that both share framing, strict decoding, calls both ways,
+error kinds and the rules of a lost or cancelled call:
+
+- Every operation but `Describe` is one method; `Describe`'s answer comes
+  with the hello.
+- The driver calls back core's gate of the call it serves. A `serve_git`
+  call also lends it three callbacks (driverwire's `CallWith`): `open`,
+  which counts as the call's gate, so a `ServeGit` lost before `open` ran
+  changed nothing; `approve`; and `input`, by which the driver's first read
+  of the client's input makes core start sending it, only after `open`
+  admitted the service.
+- A call lost with its connection ends as the runtime driver's do: an effect
+  (`create_repository`, `delete_repository`, `create_branch`,
+  `delete_branch`, `fetch_origin`, `publish` and `serve_git`) returns
+  `ErrUnknownOutcome`, unless it takes a gate that never ran, which proves
+  that nothing happened and returns `ErrUnavailable`, or that refused, whose
+  refusal it returns; a read returns `ErrUnavailable`. `export` and
+  `compare_publication` count as reads: they write only what core discards
+  or what no head holds.
+- A `serve_git` request carries two descriptors: one end of a socket pair
+  for the channel's input and Git's output, and the write end of a pipe for
+  the channel's standard error, a stream of its own that cannot hold Git's
+  output back. Once the driver answers, core waits up to 10 seconds for the
+  last output to reach the client.
+
+**Supervision** (internal/sourcedriver/supervise, over
+internal/driverwire/launch) is the runtime driver's, with the same launch
+checks and restart backoff, and these differences:
+
+- The driver's environment is exactly the daemon's `HOME` and
+  `SSH_AUTH_SOCK`, each when the daemon has it.
+- The hello carries the driver's `config` and `Core{Storage, Executable}`:
+  the storage is P's state directory, and the executable is the path the
+  launch checks passed.
+- Every driver started passes `Check` before it serves, the first included,
+  within a minute; a restarted driver whose `Describe` differs from the
+  first start's in backend, version or command words is refused, and the
+  supervisor tries again.
+- The daemon refuses to start when the first start fails its launch checks,
+  its digest, the exec, the hello or `Check`. It then pins the backend in
+  SQLite's metadata as `source_backend`, with no schema change: the same
+  backend at any version starts, another is refused while any project row
+  exists, deleting ones included, and with no project the pin is replaced.
+- The hook script executes the executable path the hello named, as
+  `p-source-git git-hook`, never a path the running process finds for
+  itself; a caller that runs the driver in its own process names the hook's
+  executable explicitly. `p git-hook` is gone.
 
 ## Migration
 
@@ -481,19 +685,51 @@ have landed. Step 1 already gives the builder a Git bundle, written by
 gitservice, and step 8 already runs rename's Git edits in core over the
 runtime driver's workspace operations.
 
+All seven steps landed, one commit each. Where a step did more or less than
+planned, its row says so.
+
 | Step | What | Removed |
 |---|---|---|
-| S1 | `internal/sourcedriver`: the interface, an in-memory driver and a conformance suite; the bundled driver in process (`internal/sourcedriver/git`), built from gitservice's broker bodies, its direct Git code, core's rename Git edits and today's name and commit ID rules. Host configuration gets `git.driver: {name, config}`. | — |
-| S2 | Repositories, heads and commits go through the driver: `EnsureBare`, `InspectBranchRef`, `CaptureLocalSource`, the three create methods, `DeleteAssignedBranchExact`, `ListRefsPage` behind `control.GitReader`, `PCommitPresent`, the loss methods, and project deletion's `os.RemoveAll`. The SQLite checks of `CreateCapturedOriginBranch` move to the daemon. Handlers check requests' names and commit IDs with `CheckNames` after their replay lookup, and core's checks keep only its bounds. Rename's workspace phases call `RenameWorkspace`. | Five command kinds; `RepositoryPath`; core's rename Git edits and `safeGitConfig`; the Git syntax in control's `validBranch` and `validOID`; `ValidateRenameBranch` |
-| S3 | Origin: core keeps the per-project lock and calls `ObserveOrigin`, `FetchOrigin`, `ComparePublication` and `Publish`; control's origin and publication interfaces adapt to them. `CheckNames` takes the URL rule. | `OriginScope`; three command kinds; `ValidateOriginURL` |
-| S4 | `Export` writes the bundle; core owns the staging directory and hands it to `BuildImage`. | gitservice's bundle code |
-| S5 | The SSH server leaves gitservice for a core package that authenticates keys and routes the command's first word to the service that declared it, the driver through `Describe()`; `ServeGit` parses the rest and calls core's `open`, which takes the lease, and the hook approval becomes `Approve`. Core pins the backend instead of a source package per session. | `git.transport.plan`; the source-git package, `plugin.RunSourceGit` and the Git brokers; `activation_path` and `source_plugin_id` in `git`; the source pin in `CreationSelection`; `p-git-ssh` becomes a runtime driver file; `parseCommand`; `ValidGitOriginRef` |
-| S6 | The daemon holds only `sourcedriver.Driver`; a test fails if another package imports the bundled driver or runs `git` or `ssh` on the host. | `internal/gitservice` |
-| S7 | `p-source-git` over step 8's protocol package, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`; the hook executes the driver; `HOME` and `SSH_AUTH_SOCK` passed. | `name`; `p git-hook` |
+| S1 | **Done** (fd4a4a8). `internal/sourcedriver`: the interface, an in-memory driver and a conformance suite; the bundled driver in process (`internal/sourcedriver/git`), built from gitservice's broker bodies, its direct Git code, core's rename Git edits and today's name and commit ID rules. Host configuration gets `git.driver: {name, config}`. The daemon only builds the driver over the state directory, in gitservice's layout, and runs `Check` at start. | — |
+| S2 | **Done** (9b09b8c). Repositories, heads and commits go through the driver: `EnsureBare`, `InspectBranchRef`, `CaptureLocalSource`, the three create methods, `DeleteAssignedBranchExact`, `ListRefsPage` behind `control.GitReader`, `PCommitPresent`, the loss methods, and project deletion's `os.RemoveAll`. The SQLite checks of `CreateCapturedOriginBranch` move to the daemon. Handlers check requests' names and commit IDs with `CheckNames` after their replay lookup, and core's checks keep only its bounds. Rename's workspace phases call `RenameWorkspace`. `api.ValidBranch` and `api.ValidOID` stay for the CLI only, as debt. | Five command kinds; `RepositoryPath`; core's rename Git edits and `safeGitConfig`; the Git syntax in control's `validBranch` and `validOID`; `ValidateRenameBranch` |
+| S3 | **Done** (234b2d6). Origin: core keeps the per-project lock and calls `ObserveOrigin`, `FetchOrigin`, `ComparePublication` and `Publish`, each call within 35 seconds and at most two at once (`Store.CallOrigin`); control's origin and publication interfaces adapt to them. `CheckNames` takes the URL rule. | `OriginScope`; three command kinds; `ValidateOriginURL`; also `plugin.ValidGitOriginRef`, planned for S5, which nothing used any more, and `withOriginScope` |
+| S4 | **Done** (842f07b). `Export` writes the bundle; core owns the staging directory and hands it to `BuildImage`. A Git read the bundled driver cannot complete, such as a corrupt object, is an error everywhere, never an absence. | gitservice's bundle code |
+| S5 | **Done** (e240457). The SSH server leaves gitservice for a core package, internal/sshserver, that authenticates keys and routes the command's first word to the service that declared it, the driver through `Describe()`; `ServeGit` parses the rest and calls core's `open`, which takes the lease, and the hook approval becomes `Approve`. Core pins the backend instead of a source package per session. | `git.transport.plan`; the source-git package, `plugin.RunSourceGit` and the Git brokers; `activation_path` and `source_plugin_id` in `git`; the source pin in `CreationSelection`; `p-git-ssh` becomes a runtime driver file; `parseCommand`; and `internal/gitservice`, planned for S6. `ValidGitOriginRef` had gone in S3 |
+| S6 | **Done** (87c73b5). The daemon holds only `sourcedriver.Driver` and builds the bundled driver in one place (source_setup.go); a test fails if another package imports the bundled driver, runs `git` or `ssh` on the host or builds a path into its storage, or if the bundled driver imports SQLite or runtime driver code. | Nothing: `internal/gitservice` had gone in S5 |
+| S7 | **Done** (4e3a0c0). `p-source-git` over `p.source-driver/v1`, built on internal/driverwire and internal/driverwire/launch, which S7 factored out of step 8's protocol and supervision, with supervision and the conformance suite over the protocol; `path` and `sha256` replace `name`, and `config` names `git` and `ssh`; the hook executes the driver; `HOME` and `SSH_AUTH_SOCK` passed; origin commands recorded for the next driver's `Check`; `system.inspect` reports `driver_sha256`; VM scenario 60. | `name`; `p git-hook` |
+
+### Answers that changed
+
+The steps changed these answers to clients:
+
+- **Paging cursors** of `project.branches`, retained branches and origin refs
+  are bounded strings with no Git syntax, so a bare `main` cursor now pages
+  instead of answering `invalid` (S2).
+- **Heads that moved** while the driver read them answer `retry`, reason
+  `refs_moved`, instead of `failed`, reason `git` (S2).
+- **A head creation or deletion settled `NotApplied`**, after its outcome was
+  lost, blocks its operation with reason `git` and is never sent again (S2).
+- **A session deletion resumed at `branch-delete-issued`** settles the branch
+  deletion and completes once it applied, where it always blocked (S2).
+- **Project deletion's plan** carries `repository_incarnation`, one opaque
+  string, instead of the repository directory's two identities
+  (`repository_identity`, `repository_parent_identity`); a repository made
+  again since the plan is kept, and the deletion blocks with
+  `precondition_failed`, reason `changed` (S2).
+- **A publication whose comparison fails** answers `failed`, reason
+  `origin`, where a repository or ancestry failure answered `git`: the
+  driver's errors do not tell them apart (S3).
+- **A key reused with an invalid URL** answers `key_reused`, since the replay
+  lookup comes before `CheckNames` (S3).
+- **`p plugins remove`** no longer refuses while origin operations are
+  pending: they use no package (S3).
+- **An SSH exec whose first word the driver declared** but whose rest it
+  cannot parse is accepted and ends with exit status 1; before, the exec
+  request itself was refused. An undeclared word is still refused (S5).
 
 ## Integration checklist
 
-These documents change when the step lands:
+These documents changed with the steps, and say what landed:
 
 - [Plugin contract](../docs/plugin-contract.md): the `source-git` capability,
   the `git.project` grant, the WASI source-Git ABI and the `p-git-ssh` asset
@@ -515,7 +751,8 @@ These documents change when the step lands:
   version and digest.
 - [Glossary](../GLOSSARY.md): a "Source driver" entry.
 - [Product direction](../docs/PRODUCT.md): "first-party implementations can be
-  replaced" covers Git source again.
+  replaced" covers Git source again; no line there names the Git source, so
+  the text did not change.
 
 Already aligned: [REWORK-PLAN.md](REWORK-PLAN.md) (the Source row, step 9),
 [plugins.md](plugins.md) (source-git, the environment exception),
@@ -541,7 +778,8 @@ rest.
 
 - **Conformance suite** (`internal/sourcedriver/conformance`), against the
   in-memory driver and the bundled driver on real Git in a temporary
-  directory, from today's gitservice tests:
+  directory, and since S7 against both again behind the protocol, from
+  today's gitservice tests:
   - repositories: creation converges and leaves `main`; deletion refuses
     another incarnation and is safe to repeat; an unsafe storage directory
     fails `Check`;
@@ -599,10 +837,24 @@ rest.
   opens its storage; the bundled driver imports no SQLite or runtime driver
   code; the launch checks refuse as they do for the runtime driver; only
   `HOME` and `SSH_AUTH_SOCK` reach the driver's environment; the daemon
-  refuses to start with another backend while a project exists.
+  refuses to start with another backend while a project exists. As landed:
+  boundary_test.go in internal/sourcedriver/git (S6), the supervisor's and
+  the launcher's tests (S7), and the backend pin's tests in internal/control
+  (S5); the launcher's tests also check that a driver leaves no process of
+  its group behind.
 - **VM scenarios** 04, 07, 08, 14, 16 to 20, 31 to 33, 43, 44 and 52 keep
   their outcomes with no source package, 19 as step 1 changed it (the bundle
   instead of the tree); 48 and 54 no longer see source-git.
   New: kill the driver during a session push after approval and during a head
   creation, then check that every lease is released, the creation is settled,
   and nothing is pushed twice.
+  Step 9's last gate, run on S7's tree before its commit (4e3a0c0), passed
+  every scenario, the new 60-source-driver-restart.sh included. Scenario 60 kills `p-source-git`
+  with SIGKILL once after a session's push was approved and its head moved,
+  and once after a session creation's head was created. The restarted driver
+  ends the dead driver's Git service, so its lease is released; the creation
+  settles through the restarted driver and completes, after
+  `p operation retry` when it blocked; and Git ran the push's `receive-pack`
+  and the head creation once each. Scenarios that put a wrapper in place of
+  `git` (34, 45, 46, 49 and 51) name it as the driver's `config.git`, since
+  the driver runs that file and inherits no `PATH`.

@@ -189,16 +189,15 @@ by three rules, applied in this order:
    as `internal` in the log, instead of hiding as "lifecycle authority is
    unavailable".
 
-**A retained-branch deletion reports an unreachable origin in its review,
-not as an error.** Its preview records the origin in `branch_loss.origin` as
-status `unknown` with reason `origin_refresh_unavailable`, and still answers;
-no retained-branch deletion answers `failed` with reason `origin`. When the
-source-Git plugin fails its check before the origin is contacted, the request
-answers `failed` with reason `plugin` (`withOriginScope` in
-internal/daemon/origin.go). Confirmation and the worker compare a fresh review
-with the reviewed one. If the origin's answer changed in between,
-confirmation answers `precondition_failed`, reason `changed`, and the worker
-ends the operation `failed`, reason `changed`, before its effect.
+**A retained-branch deletion answers no origin error.** When step 3
+landed, its review recorded an unreachable origin as status `unknown`,
+reason `origin_refresh_unavailable`, instead of failing, and a source-Git
+plugin that failed its check answered `failed`, reason `plugin`
+(`withOriginScope` in internal/daemon/origin.go). Step 5 (b6785bb) stopped
+the deletion from reading the origin at all (`DeleteRetainedBranch` in
+internal/daemon/retained_delete.go), and step 9's S3 (234b2d6) removed
+`withOriginScope` with its check of the plugin, so origin work no longer
+answers `failed`, reason `plugin`.
 
 The fixed answers outside the mapper:
 

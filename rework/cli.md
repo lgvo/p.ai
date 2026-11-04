@@ -60,9 +60,13 @@ is today's: `--socket`, then a nonempty `P_SOCKET`, then
 `system.hello`, and calls through the typed `api.Do`
 ([wire-types.md](wire-types.md#the-version-agreed-at-systemhello)), so the
 request types' `Validate` catches bad arguments before anything is sent.
-From step 9 only the daemon knows Git's syntax: it answers `invalid` for a bad
-branch name, URL or commit ID
-([source-driver.md](source-driver.md#names-urls-and-commit-ids)).
+From step 9 the daemon answers `invalid` for a bad branch name, URL or
+commit ID, as the source driver decides
+([source-driver.md](source-driver.md#names-urls-and-commit-ids)). The design
+had only the daemon know Git's syntax, but step 9's S2 left the CLI parsing
+branch names and commit IDs by the bundled driver's rules (`api.ValidBranch`
+and `api.ValidOID`), recorded as
+[debt](../docs/debts/structure.md#the-cli-parses-branch-names-and-commit-ids-by-the-bundled-drivers-rules).
 
 ### Command set
 
@@ -435,9 +439,10 @@ Host commands (run on the P host as the instance owner):
 Their arguments and JSON output stay; the NixOS module calls `p daemon` and
 `p plugins defaults` (nix/module.nix). Steps 8 and 9 own any change to them,
 and step 2 changes `p version` to report the protocol string instead of
-`control_api_version`. `p git-hook` and `p attach-helper` stay unlisted: P
-runs them itself. Every command, host commands included, exits 2 on a usage
-error.
+`control_api_version`. `p attach-helper` stays unlisted: P runs it itself.
+`p git-hook` went in step 9's S7, when the source driver's pre-receive hook
+became `p-source-git git-hook`. Every command, host commands included,
+exits 2 on a usage error.
 
 ## Depends on
 

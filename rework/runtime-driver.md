@@ -45,7 +45,9 @@ image build.
 **What users notice:** no workflow changes from the driver. Host
 configuration has a `runtime.driver` block instead of `runtime_plugin_id`,
 `incus_binary`, `incus_user_socket` and `incus_project`, and
-`p plugins defaults` lists four packages instead of six. With no helper slot
+`p plugins defaults` lists four packages instead of six, and two since
+step 9, which replaced source-git with the source driver and made
+tmux-host's files the Incus driver's own. With no helper slot
 kept free (`checkSessionCapacity`), one more session fits under the Incus
 project's container limit. Attaching shows the first output sooner (the
 times are in [How it will be checked](#how-it-will-be-checked)).
@@ -92,8 +94,8 @@ The Incus driver ships as the executable `p-runtime-incus`
 (cmd/p-runtime-incus), built from internal/runtimedriver/incus. Its Nix steps
 become a Go package that another driver can reuse. Rename's Git edits
 (workspace_rename.go with `safeGitConfig`) leave the Incus code: from M4 core
-runs them over the workspace operations, and in step 9 the source driver
-takes them ([source-driver.md](source-driver.md#renaming-a-sessions-clone)).
+runs them over the workspace operations, and since step 9's S2 the source
+driver computes them ([source-driver.md](source-driver.md#renaming-a-sessions-clone)).
 
 ## The driver interface
 
@@ -177,7 +179,7 @@ type Session struct {
 	Endpoints  string    // host directory holding session.sock and git.sock
 	Grants     []Grant
 	Network    Network // no address, or the public-egress address P reserved
-	Assets     []Asset // session assets core selected, such as the agent adapter
+	Assets     []Asset // session assets core selected: since step 9, only the agent adapter
 }
 
 type Build struct {
@@ -344,7 +346,7 @@ external rename can move a runtime away from its address.
 | Network `public-egress`, for sessions and builders | Outbound TCP 80 and 443 and DNS to the configured resolvers only; host, private, CGNAT, link-local, metadata, multicast, sibling runtimes and the driver's API denied over IPv4 and IPv6; proven from live state before each create and start, by a check the daemon's account cannot forge. (Managed bridge, ACL and nftables read by two fixed sudo commands.) |
 | Private state | Everything the session writes is kept: the whole private root survives stop and start, belongs to this runtime only, and is gone after `Delete`. (The instance root.) |
 | Stopped storage | Workspace operations reach only the session's private root: never a grant, the endpoint directory, a host path, another runtime's storage or a guest-made mount, at, below or above the path; a driver that cannot tell refuses. (A stopped instance's file API sees only its storage volume; the mountinfo parser in workspace_mounts.go stays for drivers that read through a live mount namespace.) |
-| Session host and services | The runtime runs the session's command in a persistent host that terminals attach to, reports it ready or not ready with a bounded diagnostic, and runs project services its own way. (systemd, tmux from the interactive-host package, user units.) |
+| Session host and services | The runtime runs the session's command in a persistent host that terminals attach to, reports it ready or not ready with a bounded diagnostic, and runs project services its own way. (systemd, tmux through the driver's own units and attach program, user units.) |
 | Identity | Labels stored and returned exactly; an incarnation stable across start and stop, new on re-create or restore. (`user.p.*` keys, `volatile.uuid` and its generation, image properties.) |
 | Endpoints and grants | The two sockets appear read-only at `/opt/p/endpoints`, and each grant at `/mnt/p/<name>` with its flags, in that session only; a driver refuses what it cannot honor exactly. (Disk devices within the project's ceilings.) |
 
@@ -490,7 +492,10 @@ restarted driver settles. Core always talks to `runtimedriver.Driver`; the
 daemon holds the supervisor, which reaches the driver through the protocol
 client, another implementation of it.
 
-**The protocol**, as M7 landed it in internal/runtimedriver/protocol:
+**The protocol**, as M7 landed it in internal/runtimedriver/protocol. Since
+step 9's S7 its connection, its calls both ways and the rules of a lost or
+cancelled call live in internal/driverwire, which the source driver's
+protocol shares, with the same behavior:
 
 - JSON-RPC 2.0 over a Unix socket pair, one newline-terminated JSON frame per
   message, decoded strictly, at most 16 MiB a frame, since a session's
@@ -514,13 +519,14 @@ client, another implementation of it.
   synchronous call on the main connection, and the terminal's end comes as
   the answer to a long `wait_terminal` call.
 - Host configuration is `runtime.driver: {path, sha256, config}`, beside the
-  source driver's `git.driver`. The Incus driver's `config` holds `binary`,
-  `user_socket`, `project` and an optional absolute `journalctl`, with which
-  it reads a stopped host's journal; every configuration that runs the
-  driver names it, since the driver runs with an empty environment. Public
-  egress, the disk-source ceilings and the builder storage pool stay in
-  core's configuration, because core uses them too, and reach the driver in
-  the hello.
+  source driver's `git.driver`; since step 9's S7 both are one type,
+  `DriverConfig` (internal/control/config.go). The Incus driver's `config`
+  holds `binary`, `user_socket`, `project` and an optional absolute
+  `journalctl`, with which it reads a stopped host's journal; every
+  configuration that runs the driver names it, since the driver runs with an
+  empty environment. Public egress, the disk-source ceilings and the builder
+  storage pool stay in core's configuration, because core uses them too, and
+  reach the driver in the hello.
 
 **Launch checks.** The path and digest alone do not prove that only root or
 P's account can change the file between the check and the start:
@@ -533,23 +539,28 @@ existing exception for a root-owned sticky ancestor; the executable a regular
 file owned by root or P's account, not group- or world-writable, with one
 link unless root owns it and no one may write it; and its owner's execute bit
 set. It then hashes the file and starts the file it checked. M7 landed them
-in internal/runtimedriver/supervise (check.go): the checks open the
-directory and then the file without following a symbolic link, check and hash
-the open file, and the supervisor starts that open file through its
-descriptor, so a file put at the path after the check never runs.
+in internal/runtimedriver/supervise (check.go), and step 9's S7 moved them
+to internal/driverwire/launch (check.go), which starts both drivers: the
+checks open the directory and then the file without following a symbolic
+link, check and hash the open file, and the launcher starts that open file
+through its descriptor, so a file put at the path after the check never runs.
 
-**Supervision** (internal/runtimedriver/supervise). The daemon starts the
-driver with an empty environment and refuses to start itself when the first
-launch fails its checks, its hash, the exec or the hello. When the driver
+**Supervision** (internal/runtimedriver/supervise, over
+internal/driverwire/launch since S7). The daemon starts the driver with an
+empty environment and refuses to start itself when the first launch fails
+its checks, its hash, the exec or the hello. When the driver
 exits or its connection is lost, calls in flight end as the protocol says,
 calls made while it is down return `ErrUnavailable`, and the supervisor
 restarts it, after a wait that starts at 100 ms and doubles up to 30 seconds
-(back to 100 ms after a driver that ran for a minute). A restarted driver
+(back to 100 ms after a driver that ran for a minute). Since S7 a driver
+that exits takes its process group along: the launcher waits for the exit
+without reaping the driver (`waitid` with `WNOWAIT`), so the group's ID
+stays reserved, kills the group, and only then reaps it. A restarted driver
 that describes other capabilities than at its first start is refused, and
 the supervisor tries again. A driver that hangs with its connection open is
 not detected: nothing checks that it still answers, so its calls wait until
 their contexts end
-([debt](../docs/debts/state-safety.md#a-hung-runtime-driver-is-never-restarted)).
+([debt](../docs/debts/state-safety.md#a-hung-driver-is-never-restarted)).
 
 ## Images and step 1
 
@@ -575,8 +586,8 @@ cache may come later, as a plugin.
 **Step 1 comes first, as decided.** It creates `internal/runtimedriver` with
 `BuildImage`, the image operations and `Settle` for builds, folds the
 environment plugin in, and writes commit images against them. Its builder
-already clones a Git bundle, which gitservice writes until the source driver's
-`Export` takes over. The rest of step 8 stays last.
+already clones a Git bundle, which gitservice wrote until the source driver's
+`Export` took over in step 9's S4. The rest of step 8 stays last.
 
 ## Migration
 
@@ -607,10 +618,11 @@ planned, its row says so.
   `environment` capabilities, their grants and WASI ABI sections, and two of
   the six bundled packages go. An activation file with a runtime or
   environment entry is invalid. The interactive-host package's units and
-  attach program become inputs of the Incus driver's session host; whether
-  hosts stay selectable, and the rule that "merely running a native
-  executable in a separate process does not meet this contract", are left to
-  the plugin rework.
+  attach program become inputs of the Incus driver's session host. The
+  plugin rework settled whether hosts stay selectable: in its part 1
+  (6e43794) the units and attach program became the Incus driver's own files
+  and no host is selected. The rule that "merely running a native executable
+  in a separate process does not meet this contract" is left to its part 2.
 - [Runtime isolation](../docs/runtime-isolation.md): Incus becomes the Incus
   driver, and the properties above get their own section. Network `none`
   means nothing reachable rather than "no general NIC". The systemd host

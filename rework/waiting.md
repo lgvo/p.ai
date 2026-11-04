@@ -234,12 +234,15 @@ refused through the same admission check.
 
 Decided by the maintainer on 2026-11-02: `origin.change` and `origin.publish`
 become operations in step 4, as "every change returns an operation" reads.
-Both contact the origin inside the request today, with origin deadlines of 35
-seconds (internal/plugin/sourcegit.go and
-internal/gitservice/origin_publication.go, which become the
-[source driver](source-driver.md)'s) inside a 30-second request, and a push
-cut by the request deadline stays `attempted` and replays `outcome_unknown`
-for its key (`PublishPublication` in internal/control/publication_api.go). As
+Before step 4 both contacted the origin inside the request, with origin
+deadlines of 35 seconds inside a 30-second request, and a push cut by the
+request deadline stayed `attempted` and replayed `outcome_unknown` for its
+key (`PublishPublication` in internal/control/publication_api.go, which step
+4 replaced with the operation's worker, `RunPublication`). Those deadlines
+were internal/plugin/sourcegit.go's and
+internal/gitservice/origin_publication.go's. Since step 9's S3 the origin
+calls are the [source driver](source-driver.md)'s, and core bounds each at
+35 seconds (`Store.CallOrigin` in internal/control/origin_lock.go). As
 operations, `outcome_unknown` becomes a `failed` operation with that reason,
 never retried, as today; their request tables (`origin_requests`,
 `publication_requests`) fold into the journal.
