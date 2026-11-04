@@ -318,8 +318,9 @@ the driver protocol.
 
 ### Source driver
 
-The trusted code that owns P's repositories and every Git effect for P core,
-addressed in P's terms rather than Git's layout.
+The trusted executable that owns P's repositories and every Git effect for P
+core, which the daemon starts, supervises and addresses in P's terms rather
+than Git's layout over the source driver protocol.
 
 - **Related:** [Runtime driver](#runtime-driver), [origin](#origin).
 - **Boundaries:** It is part of trusted P, not a plugin. Its contract covers
@@ -332,10 +333,11 @@ addressed in P's terms rather than Git's layout.
   database or reaches a runtime. Core's SSH server authenticates a session's
   key and hands the stream to the driver's Git service, which asks core to
   open the service and to approve the one head update a push makes. Host
-  configuration selects it as `git.driver`; its Git implementation,
-  `internal/sourcedriver/git`, runs inside the P daemon, which holds nothing
-  of it but the driver interface. The daemon reaches P's repositories and Git
-  only through the driver; no other code runs `git` or `ssh` on the host.
+  configuration pins its executable by path and SHA-256 as `git.driver`. Its
+  Git implementation, `internal/sourcedriver/git`, runs as the `p-source-git`
+  executable shipped with P; the daemon holds nothing of it but the driver
+  interface. The daemon reaches P's repositories and Git only through the
+  driver; no other code runs `git` or `ssh` on the host.
   Core pins the driver's backend at its first start and refuses another while
   any project exists; sessions pin no source package.
 - **Rules:** It acts only on P's repositories in its configured storage,

@@ -287,7 +287,7 @@
   the bundled source driver, plugin and the Incus driver), or the next change to host configuration.
 - Left by: the agent, by rule (a restructuring not pursued: steps 2 and 3b of REWORK-PLAN.md
   were deferred after measuring their cost).
-- Added 2026-11-01, updated 2026-11-03, 14 cases:
+- Added 2026-11-01, updated 2026-11-03, 15 cases:
   - 2026-11-01: "complete rework of P's implementation" deferred steps 2 and 3b after
     measurement.
   - 2026-11-02: "deletions without inspection" removed the `workspace.loss.inspect` handler
@@ -334,6 +334,11 @@
   - 2026-11-03: "step 9 P1: the session host moves into the Incus driver" removed
     `activation_path` and `host_plugin_id` from `runtime`, a change to host configuration
     that meets "Fix when"; the move was outside that removal.
+  - 2026-11-03: "the source driver as its own executable" (step 9, S7) replaced
+    `git.driver.name` with the driver executable's `path` and `sha256`, which both drivers'
+    blocks now share as `DriverConfig`, a change to host configuration that meets "Fix
+    when"; the move was outside that step. `p-source-git` takes its storage from the hello
+    and imports no control code.
 
 ## Operation status updates and kind lists are still written per site
 

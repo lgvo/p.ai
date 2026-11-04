@@ -34,18 +34,12 @@ type gitCapability struct {
 	info     *api.GitInfo
 }
 
-// newGitCapability starts the source driver, pins its backend, and makes P's
-// SSH server on the configured loopback address with the driver's Git
-// service.
-func newGitCapability(ctx context.Context, cfg control.HostConfig, store *control.Store) (_ *gitCapability, err error) {
-	selected := cfg.Git
-	if selected == nil {
-		return nil, errors.New("Git configuration is absent")
-	}
-	driver, endServices, err := newSourceDriver(ctx, cfg)
-	if err != nil {
-		return nil, err
-	}
+// newGitCapability pins the backend of driver, the running source driver,
+// and makes P's SSH server on the configured loopback address with the
+// driver's Git service. It takes over the driver: endServices, which ends
+// the Git services the driver runs and refuses later ones, runs when it
+// fails and at close.
+func newGitCapability(ctx context.Context, cfg control.HostConfig, store *control.Store, driver sourcedriver.Driver, endServices func() error) (_ *gitCapability, err error) {
 	defer func() {
 		if err != nil {
 			endServices()
@@ -65,7 +59,7 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 	if err := store.EnsureHostGitPrincipal(ctx, sshserver.Fingerprint(clientPub)); err != nil {
 		return nil, fmt.Errorf("Git host principal: %w", err)
 	}
-	listener, err := net.Listen("tcp", selected.Listen)
+	listener, err := net.Listen("tcp", cfg.Git.Listen)
 	if err != nil {
 		return nil, err
 	}
@@ -89,6 +83,7 @@ func newGitCapability(ctx context.Context, cfg control.HostConfig, store *contro
 		ClientKeyPath:   filepath.Join(cfg.StateDir, "git_client_key"),
 		DriverBackend:   driver.Describe().Backend,
 		DriverVersion:   driver.Describe().Version,
+		DriverSHA256:    cfg.Git.Driver.SHA256,
 	}
 	return &gitCapability{driver: driver, endServices: endServices, server: server, listener: listener, info: info}, nil
 }

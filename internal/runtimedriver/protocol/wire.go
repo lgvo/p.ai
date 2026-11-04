@@ -1,7 +1,6 @@
 package protocol
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/lgvo/p.ai/internal/runtimedriver"
@@ -274,17 +273,6 @@ func (w wireSettlement) settlement() (runtimedriver.Settlement, error) {
 
 type noParams struct{}
 
-type helloParams struct {
-	Protocol string          `json:"protocol"`
-	Config   json.RawMessage `json:"config"`
-	Core     Core            `json:"core"`
-}
-
-type helloResult struct {
-	Protocol     string           `json:"protocol"`
-	Capabilities wireCapabilities `json:"capabilities"`
-}
-
 type sessionParams struct {
 	Session wireSession `json:"session"`
 }
@@ -378,14 +366,4 @@ type deleteParams struct {
 	Ref  wireRef                   `json:"ref"`
 	At   runtimedriver.Incarnation `json:"at"`
 	Gate bool                      `json:"gate"`
-}
-
-// gateParams name the call whose gate the driver calls.
-type gateParams struct {
-	Call uint64 `json:"call"`
-}
-
-// cancelParams name the call core no longer waits for.
-type cancelParams struct {
-	ID uint64 `json:"id"`
 }

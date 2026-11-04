@@ -5,11 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"net"
-	"os"
 	"sync"
-	"syscall"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/driverwire"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 )
 
@@ -23,15 +22,15 @@ const closeWait = 30 * time.Second
 // OpenTerminal opens a terminal on a connection of its own: a socket pair
 // whose far end goes to the driver with the request.
 func (cl *Client) OpenTerminal(ctx context.Context, t runtimedriver.Target, size runtimedriver.Size) (runtimedriver.Terminal, error) {
-	local, remote, err := socketPair()
+	local, remote, err := driverwire.SocketPair("terminal connection")
 	if err != nil {
 		return nil, fmt.Errorf("a connection for the terminal: %w", err)
 	}
 	var res terminalParams
-	err = cl.call(ctx, methodOpenTerminal, openTerminalParams{Target: toTarget(t), Size: wireSize(size)}, nil, remote, &res)
+	err = cl.c.Call(ctx, methodOpenTerminal, openTerminalParams{Target: toTarget(t), Size: wireSize(size)}, nil, remote, &res)
 	remote.Close()
 	if err == nil && res.Terminal == "" {
-		err = unknownOutcome(methodOpenTerminal, errors.New("the driver named no terminal"))
+		err = fmt.Errorf("%s: the driver named no terminal: %w", methodOpenTerminal, runtimedriver.ErrUnknownOutcome)
 	}
 	if err != nil {
 		local.Close()
@@ -40,24 +39,6 @@ func (cl *Client) OpenTerminal(ctx context.Context, t runtimedriver.Target, size
 	term := &terminal{cl: cl, id: res.Terminal, conn: local, ended: make(chan runtimedriver.Completion, 1), over: make(chan struct{})}
 	go term.wait()
 	return term, nil
-}
-
-// socketPair is a connected pair of Unix stream sockets: one end as a
-// connection, the other as the file to pass.
-func socketPair() (*net.UnixConn, *os.File, error) {
-	fds, err := syscall.Socketpair(syscall.AF_UNIX, syscall.SOCK_STREAM|syscall.SOCK_CLOEXEC, 0)
-	if err != nil {
-		return nil, nil, err
-	}
-	localFile := os.NewFile(uintptr(fds[0]), "terminal connection")
-	remote := os.NewFile(uintptr(fds[1]), "terminal connection")
-	c, err := net.FileConn(localFile)
-	localFile.Close()
-	if err != nil {
-		remote.Close()
-		return nil, nil, err
-	}
-	return c.(*net.UnixConn), remote, nil
 }
 
 // terminal is a driver's terminal seen from core: its bytes on its own
@@ -92,7 +73,7 @@ func (t *terminal) Write(p []byte) (int, error) {
 func (t *terminal) Resize(size runtimedriver.Size) error {
 	ctx, cancel := context.WithTimeout(context.Background(), resizeWait)
 	defer cancel()
-	return t.cl.call(ctx, methodResizeTerminal, resizeTerminalParams{Terminal: t.id, Size: wireSize(size)}, nil, nil, nil)
+	return t.cl.c.Call(ctx, methodResizeTerminal, resizeTerminalParams{Terminal: t.id, Size: wireSize(size)}, nil, nil, nil)
 }
 
 func (t *terminal) Ended() <-chan runtimedriver.Completion { return t.ended }
@@ -124,7 +105,7 @@ func (t *terminal) Close() error {
 // A lost connection ends it unproven.
 func (t *terminal) wait() {
 	var res waitTerminalResult
-	err := t.cl.call(context.Background(), methodWaitTerminal, terminalParams{Terminal: t.id}, nil, nil, &res)
+	err := t.cl.c.Call(context.Background(), methodWaitTerminal, terminalParams{Terminal: t.id}, nil, nil, &res)
 	t.ended <- runtimedriver.Completion{Proven: err == nil && res.Proven}
 	close(t.ended)
 	close(t.over)

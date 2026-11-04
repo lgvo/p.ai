@@ -100,17 +100,21 @@ chmod 0700 "$incus_wrapper"
 base=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base}" -eq 64
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_wrapper")
-jq -n --arg state "$state" \
+# The source driver runs the fixture's Git wrapper, which is made below,
+# before the daemon starts.
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh" |
+  jq -c --arg git "$step_dir/bin/git" '.config.git=$git')
+jq -n --arg state "$state" --argjson source_driver "$source_driver" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$base" \
   '{schema:"p.host/v1",state_dir:$state,
-    git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+    git:{listen:"127.0.0.1:0",driver:$source_driver},
     runtime:{driver:$driver,
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
       base_image_fingerprint:$image,
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 start_daemon() {
-  PATH="$step_dir/bin:$PATH" p daemon "$step_dir/host.json" >> "$step_dir/daemon.out" 2>> "$step_dir/daemon.err" &
+  p daemon "$step_dir/host.json" >> "$step_dir/daemon.out" 2>> "$step_dir/daemon.err" &
   daemon_pid=$!
   printf '%s\n' "$daemon_pid" > "$step_dir/daemon.pid"
   local deadline=$((SECONDS+30))
@@ -122,7 +126,10 @@ start_daemon() {
   echo 'workspace daemon health unavailable' >&2
   return 1
 }
-host_git=$(command -v git)
+# The source driver's Git is this wrapper, which runs the host's Git. The
+# driver runs its Git with PATH set to the wrapper's directory, so the
+# wrapper uses shell builtins and the absolute utilities resolved here.
+host_git=$(readlink -f -- "$(command -v git)")
 mkdir -m 0700 "$step_dir/bin"
 printf '#!%s\n' "$(command -v bash)" > "$step_dir/bin/git"
 printf 'host_git=%q\nfixture=%q\np_binary=%q\njq_binary=%q\nsleep_binary=%q\n' "$host_git" "$step_dir" "$(command -v p)" "$(command -v jq)" "$(command -v sleep)" >> "$step_dir/bin/git"

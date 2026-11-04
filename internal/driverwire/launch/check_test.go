@@ -1,4 +1,4 @@
-package supervise
+package launch
 
 import (
 	"crypto/sha256"

@@ -125,12 +125,15 @@ func (d *Driver) push(ctx context.Context, repo string, p sourcedriver.Publicati
 	}
 	defer os.RemoveAll(transport)
 	dest := "refs/heads/" + p.Destination
-	cmd, err := d.originCommand(ctx, transport, []string{"GIT_OBJECT_DIRECTORY=" + filepath.Join(repo, "objects")},
+	// Without its record, the push must not start: nothing is sent.
+	token, remove, err := d.recordOrigin()
+	if err != nil {
+		return "", fmt.Errorf("the push could not be recorded: %w", err)
+	}
+	defer remove()
+	cmd := d.originCommand(ctx, transport, token, []string{"GIT_OBJECT_DIRECTORY=" + filepath.Join(repo, "objects")},
 		"-c", "protocol.allow=never", "-c", "protocol.ssh.allow=always", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "push.followTags=false",
 		"push", "--porcelain", "--no-verify", "--no-follow-tags", p.URL, string(p.Commit)+":"+dest)
-	if err != nil {
-		return "", err
-	}
 	stdout, stderr := &boundedOutput{max: 4096}, &boundedOutput{max: 4096}
 	cmd.Stdout, cmd.Stderr = stdout, stderr
 	if err := g(); err != nil {

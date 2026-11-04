@@ -1,4 +1,4 @@
-package protocol
+package driverwire
 
 import (
 	"bufio"
@@ -13,7 +13,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
@@ -35,8 +34,8 @@ type message struct {
 
 // decodeMessage reads one frame strictly: one JSON object with no duplicate,
 // unknown or inexact keys, that is a request or notification with an object
-// of parameters, or a response.
-func decodeMessage(frame []byte) (*message, error) {
+// of parameters, or a response, whose error's data p's kinds decode.
+func decodeMessage(frame []byte, p *Protocol) (*message, error) {
 	var m message
 	if err := strictjson.Decode(frame, &m); err != nil {
 		return nil, fmt.Errorf("malformed frame: %w", err)
@@ -49,6 +48,13 @@ func decodeMessage(frame []byte) (*message, error) {
 	}
 	if !valid {
 		return nil, errors.New("the frame is not a JSON-RPC 2.0 request, notification or response")
+	}
+	if e := m.Error; e != nil && e.Data != nil && string(e.Data) != "null" {
+		data, err := p.Kinds.Decode(e.Data)
+		if err != nil {
+			return nil, fmt.Errorf("malformed frame: %w", err)
+		}
+		e.decoded = data
 	}
 	return &m, nil
 }
@@ -92,14 +98,15 @@ func (f *frameReader) next() ([]byte, error) {
 	}
 }
 
-// takeFD is the oldest descriptor that arrived and was not taken yet.
-func (f *frameReader) takeFD() *os.File {
+// takeFD is the oldest descriptor that arrived and was not taken yet, as a
+// file named name.
+func (f *frameReader) takeFD(name string) *os.File {
 	if f.fds == nil || len(f.fds.queue) == 0 {
 		return nil
 	}
 	fd := f.fds.queue[0]
 	f.fds.queue = f.fds.queue[1:]
-	return fd
+	return os.NewFile(uintptr(fd), name)
 }
 
 // close closes the descriptors nothing took.
@@ -108,7 +115,7 @@ func (f *frameReader) close() {
 		return
 	}
 	for _, fd := range f.fds.queue {
-		fd.Close()
+		syscall.Close(fd)
 	}
 	f.fds.queue = nil
 }
@@ -125,7 +132,7 @@ const maxQueuedFDs = 8
 type descriptorReader struct {
 	conn  *net.UnixConn
 	oob   []byte
-	queue []*os.File
+	queue []int
 }
 
 func (r *descriptorReader) Read(p []byte) (int, error) {
@@ -154,9 +161,7 @@ func (r *descriptorReader) keep(oob []byte) error {
 			failed = errors.New("a control message other than descriptors arrived")
 			continue
 		}
-		for _, fd := range fds {
-			r.queue = append(r.queue, os.NewFile(uintptr(fd), "terminal connection"))
-		}
+		r.queue = append(r.queue, fds...)
 	}
 	if len(r.queue) > maxQueuedFDs {
 		failed = errors.New("more descriptors arrived than requests take")
@@ -175,18 +180,24 @@ const (
 )
 
 // outgoing is a request this side sent and waits on. Its fields other than
-// done are set before done closes; the gate's fields are guarded by the
-// connection's mutex.
+// done are set before done closes; the fields of what the call lent are
+// guarded by the connection's mutex.
 type outgoing struct {
 	done   chan struct{}
 	result json.RawMessage
 	err    *wireError
 
-	gate      runtimedriver.Gate // a client call's gate, or nil
+	// lent are the functions a client call lent the driver, by the method
+	// the driver calls each by; gate is the method of its gate, or empty.
+	lent      map[string]Callback
+	gate      string
 	gateState gateState
 	gateErr   error
 	gateOver  chan struct{} // made as the gate starts running; closes once it returned
-	ending    bool          // the call is returning; a gate that has not started is refused
+	// callbacks counts the callbacks other than the gate that the driver
+	// called and that may still run.
+	callbacks sync.WaitGroup
+	ending    bool // the call is returning; what it lent and has not started is refused
 }
 
 // handler takes the requests and notifications the peer sends. It runs in
@@ -200,8 +211,10 @@ type handler interface {
 // requests to a handler.
 type conn struct {
 	uc      *net.UnixConn
+	p       *Protocol
 	frames  *frameReader
 	writeMu sync.Mutex
+	errLost error // the cause of a call whose connection was lost
 
 	mu      sync.Mutex
 	nextID  uint64
@@ -211,8 +224,9 @@ type conn struct {
 	lost    chan struct{} // closes once the connection is lost
 }
 
-func newConn(uc *net.UnixConn, acceptFDs bool) *conn {
-	return &conn{uc: uc, frames: newFrameReader(uc, acceptFDs), pending: map[uint64]*outgoing{}, lost: make(chan struct{})}
+func newConn(uc *net.UnixConn, p *Protocol, acceptFDs bool) *conn {
+	return &conn{uc: uc, p: p, frames: newFrameReader(uc, acceptFDs), errLost: fmt.Errorf("the connection to the %s was lost", p.Name),
+		pending: map[uint64]*outgoing{}, lost: make(chan struct{})}
 }
 
 // readLoop reads frames until the connection is lost.
@@ -224,7 +238,7 @@ func (c *conn) readLoop(h handler) {
 			c.fail(err)
 			return
 		}
-		m, err := decodeMessage(frame)
+		m, err := decodeMessage(frame, c.p)
 		if err == nil {
 			if m.Method == "" {
 				c.deliver(m)
@@ -270,11 +284,10 @@ func (c *conn) forget(id uint64) {
 	c.mu.Unlock()
 }
 
-// send writes m as one frame, with fd passed alongside when it is set. A
-// message over the frame bound is refused before anything is written; a
-// failed write ends the connection, since the peer may have read part of
-// the frame.
-func (c *conn) send(m *message, fd *os.File) error {
+// send writes m as one frame, with fds passed alongside. A message over the
+// frame bound is refused before anything is written; a failed write ends
+// the connection, since the peer may have read part of the frame.
+func (c *conn) send(m *message, fds ...*os.File) error {
 	raw, err := json.Marshal(m)
 	if err != nil {
 		return err
@@ -286,11 +299,15 @@ func (c *conn) send(m *message, fd *os.File) error {
 	c.writeMu.Lock()
 	defer c.writeMu.Unlock()
 	if c.isLost() {
-		return errLost
+		return c.errLost
 	}
 	c.uc.SetWriteDeadline(time.Now().Add(writeWait))
-	if fd != nil {
-		n, _, err := c.uc.WriteMsgUnix(raw, syscall.UnixRights(int(fd.Fd())), nil)
+	if len(fds) > 0 {
+		rights := make([]int, len(fds))
+		for i, f := range fds {
+			rights[i] = int(f.Fd())
+		}
+		n, _, err := c.uc.WriteMsgUnix(raw, syscall.UnixRights(rights...), nil)
 		if err != nil {
 			c.fail(err)
 			return err
@@ -325,33 +342,34 @@ func newNotification(method string, params any) (*message, error) {
 }
 
 // respond answers the request id with result, or with err when it is set.
-// A result over the frame bound is answered with an error instead, of kind
-// ErrUnknownOutcome after an effect and ErrUnavailable after a read.
+// A result over the frame bound is answered with an error instead, of the
+// protocol's UnknownOutcome kind after an effect and of its Unavailable kind
+// after a read.
 func (c *conn) respond(id uint64, method string, result any, err error) {
 	if err == nil {
 		raw, e := json.Marshal(result)
 		if e == nil {
-			e = c.send(&message{JSONRPC: "2.0", ID: &id, Result: raw}, nil)
+			e = c.send(&message{JSONRPC: "2.0", ID: &id, Result: raw})
 		}
 		if e == nil || !errors.Is(e, errFrameTooLarge) {
 			return
 		}
-		if effects[method] {
-			err = unknownOutcome("the driver's answer could not be sent", e)
+		if c.p.Effects[method] {
+			err = c.p.unknownOutcome("the driver's answer could not be sent", e)
 		} else {
-			err = unavailable("the driver's answer could not be sent", e)
+			err = c.p.unavailable("the driver's answer could not be sent", e)
 		}
 	}
-	c.respondError(id, toWireError(err))
+	c.respondError(id, c.p.toWireError(err))
 }
 
 func (c *conn) respondError(id uint64, e *wireError) {
-	if err := c.send(&message{JSONRPC: "2.0", ID: &id, Error: e}, nil); errors.Is(err, errFrameTooLarge) {
+	if err := c.send(&message{JSONRPC: "2.0", ID: &id, Error: e}); errors.Is(err, errFrameTooLarge) {
 		// An error message too long for a frame: its kinds go with the
 		// start of it.
 		short := *e
 		short.Message = short.Message[:4096]
-		c.send(&message{JSONRPC: "2.0", ID: &id, Error: &short}, nil)
+		c.send(&message{JSONRPC: "2.0", ID: &id, Error: &short})
 	}
 }
 

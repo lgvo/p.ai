@@ -6,19 +6,40 @@ let
     ++ lib.attrValues (runtime.project_policies or {});
   state = "/var/lib/${cfg.stateDirectory}";
   driver = runtime.driver or {};
-  hostSettings = cfg.settings // { schema = "p.host/v1"; state_dir = state; };
-  # A runtime driver without a path is the package's own p-runtime-incus,
-  # pinned by the SHA-256 computed when host.json is built.
-  host = if cfg.settings ? runtime && !(driver ? path)
+  gitSettings = cfg.settings.git or {};
+  sourceDriver = gitSettings.driver or {};
+  # The package's own p-source-git inherits no PATH, so its config names the
+  # git and ssh it runs, by default the system's.
+  packagedSourceDriver = sourceDriver // {
+    config = { git = "${pkgs.git}/bin/git"; ssh = "${pkgs.openssh}/bin/ssh"; }
+      // (sourceDriver.config or {});
+  };
+  hostSettings = cfg.settings // { schema = "p.host/v1"; state_dir = state; }
+    // lib.optionalAttrs (cfg.settings ? git && !(sourceDriver ? path)) {
+      git = gitSettings // { driver = packagedSourceDriver; };
+    };
+  # A driver without a path is the package's own executable, p-runtime-incus
+  # or p-source-git, pinned by the SHA-256 computed when host.json is built.
+  packaged = lib.optional (cfg.settings ? runtime && !(driver ? path))
+      { block = "runtime"; executable = "p-runtime-incus"; }
+    ++ lib.optional (cfg.settings ? git && !(sourceDriver ? path))
+      { block = "git"; executable = "p-source-git"; };
+  pin = d: ''
+    executable=${cfg.package}/bin/${d.executable}
+    digest=$(sha256sum "$executable" | cut -d' ' -f1)
+    jq -c --arg path "$executable" --arg sha256 "$digest" \
+      '.${d.block}.driver += {path: $path, sha256: $sha256}' host.json > pinned.json
+    mv pinned.json host.json
+  '';
+  host = if packaged != [ ]
     then pkgs.runCommand "p-host.json" {
       nativeBuildInputs = [ pkgs.jq ];
       settings = builtins.toJSON hostSettings;
       passAsFile = [ "settings" ];
     } ''
-      executable=${cfg.package}/bin/p-runtime-incus
-      digest=$(sha256sum "$executable" | cut -d' ' -f1)
-      jq -c --arg path "$executable" --arg sha256 "$digest" \
-        '.runtime.driver += {path: $path, sha256: $sha256}' "$settingsPath" > "$out"
+      cp "$settingsPath" host.json
+      ${lib.concatMapStrings pin packaged}
+      cp host.json "$out"
     ''
     else pkgs.writeText "p-host.json" (builtins.toJSON hostSettings);
   prepare = pkgs.writeShellScript "p-prepare-config" ''
@@ -60,7 +81,7 @@ in {
     };
     settings = lib.mkOption {
       type = lib.types.attrs; default = {};
-      description = "Trusted p.host/v1 settings, excluding forced schema/state_dir. A runtime.driver without path and sha256 runs the package's p-runtime-incus, pinned by its digest. Never put credentials in Nix settings.";
+      description = "Trusted p.host/v1 settings, excluding forced schema/state_dir. A runtime.driver or git.driver without path and sha256 runs the package's p-runtime-incus or p-source-git, pinned by its digest; p-source-git's config names the system's git and ssh unless it sets them. Never put credentials in Nix settings.";
     };
     bundledActivation = lib.mkOption {
       type = lib.types.bool; default = false;
@@ -84,6 +105,8 @@ in {
         message = "P installation requires explicit trusted Git and confined runtime settings."; }
       { assertion = (driver ? path) == (driver ? sha256);
         message = "P's runtime.driver names path and sha256 together, or neither to run the package's p-runtime-incus."; }
+      { assertion = (sourceDriver ? path) == (sourceDriver ? sha256);
+        message = "P's git.driver names path and sha256 together, or neither to run the package's p-source-git."; }
       { assertion = (runtime.public_egress or null) == null
           && lib.all (policy: (policy.network or "none") == "none") policies;
         message = "P's hardened service supports network:none only; public-egress requires the owner-run daemon and its scoped privileged proofs."; }
@@ -103,7 +126,7 @@ in {
       wantedBy = [ "multi-user.target" ];
       requires = [ "incus-user.socket" ];
       after = [ "incus.service" "incus-user.socket" ];
-      path = [ pkgs.git pkgs.openssh pkgs.bash pkgs.coreutils ];
+      path = [ pkgs.bash pkgs.coreutils ];
       serviceConfig = {
         User = cfg.user;
         Group = cfg.group;

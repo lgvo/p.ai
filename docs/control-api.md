@@ -30,24 +30,54 @@ An optional trusted `git` object selects the source driver and starts P's
 host Git service:
 
 ```json
-{"schema":"p.host/v1","state_dir":"/absolute/private/p-state","git":{"listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}}}
+{
+  "schema": "p.host/v1",
+  "state_dir": "/absolute/private/p-state",
+  "git": {
+    "listen": "127.0.0.1:2222",
+    "driver": {
+      "path": "/nix/store/<pinned-p>/bin/p-source-git",
+      "sha256": "<64 lowercase hex digits>",
+      "config": {"git": "/absolute/trusted/git", "ssh": "/absolute/trusted/ssh"}
+    }
+  }
+}
 ```
 
 `listen` is a numeric loopback TCP address with an explicit port; port `0`
 asks the OS for a free loopback port and `system.inspect` reports the actual
 endpoint.
 
-`git.driver` names the source driver P uses and carries that driver's own
-settings in `config`, which only the driver reads. P has one driver, `git`,
-built into P, which keeps P's repositories in the state directory; its
-`config` is an empty object, and the driver refuses any setting. Loading the
-host configuration checks only that the driver is `git` and that `config` is
-an object. At daemon start the driver refuses unknown settings and checks
-that its storage is private to the daemon user and that Git runs. The daemon
-records the driver's backend at its first start; while any project exists,
-deleting ones included, it refuses to start with a driver of another backend,
-whose storage holds none of the instance's repositories. A driver of the
-same backend at another version starts.
+`git.driver` pins the source driver P uses, an executable of its own, and
+carries that driver's own settings in `config`, which only the driver reads.
+`path` and `sha256` pin it as they pin `runtime.driver` below: the
+absolute, clean path of the executable and its SHA-256. P ships one
+source driver, the Git driver, as `bin/p-source-git` in its package; the
+[NixOS module](../README.md#nixos-installation) fills in that path and digest
+when `git.driver` gives no `path`. Loading the host configuration checks only
+the shape: `path` absolute and clean, `sha256` 64 lowercase hex digits, and
+`config` an object. The daemon starts the driver as it starts, with the same
+launch checks and digest as the runtime driver
+([runtime isolation](runtime-isolation.md#driver-executable)), and refuses to
+start when that first start fails them or the hello. The driver's environment
+is the daemon's `HOME` and `SSH_AUTH_SOCK` and nothing else, so that it
+reaches origins with the daemon account's OpenSSH configuration, known hosts
+and agent. The hello gives it `config`, its storage, the state directory,
+where it keeps P's repositories, and the path of the executable the launch
+checks passed, which its Git service's pre-receive hook runs.
+
+The Git driver's `config` holds two required settings: `git`, the absolute,
+clean path of the trusted Git it runs on P's repositories and origins, and
+`ssh`, that of the trusted OpenSSH client through which it reaches origins.
+The driver inherits no `PATH` and never looks either up; the NixOS module
+sets them to the system's Git and OpenSSH unless `config` names them. In the
+hello it refuses unknown, missing or duplicate settings and paths that are
+not absolute and clean, and it checks that its storage is private to the
+daemon user and that its Git runs. The daemon records the driver's backend
+at its first start; while any project exists, deleting ones included, it
+refuses to start with a driver of another backend, whose storage holds none
+of the instance's repositories. A driver of the same backend at another
+version starts.
 
 The state directory holds persistent `git_server_key` and `git_client_key`
 Ed25519 private files at mode `0600`. The daemon registers the latter as its
@@ -72,7 +102,14 @@ cannot add networking, mounts, commands, or other grants.
 {
   "schema": "p.host/v1",
   "state_dir": "/absolute/private/p-state",
-  "git": {"listen":"127.0.0.1:2222","driver":{"name":"git","config":{}}},
+  "git": {
+    "listen": "127.0.0.1:2222",
+    "driver": {
+      "path": "/nix/store/<pinned-p>/bin/p-source-git",
+      "sha256": "<64 lowercase hex digits>",
+      "config": {"git": "/absolute/trusted/git", "ssh": "/absolute/trusted/ssh"}
+    }
+  },
   "runtime": {
     "driver": {
       "path": "/nix/store/<pinned-p>/bin/p-runtime-incus",
@@ -484,7 +521,7 @@ owns when an accepted report replaces or clears the durable value.
 |---|---|---|
 | `system.hello` | `protocol`, `build_version`, `instance_id`, `capabilities` | Agrees protocol `p.control/v2` for the connection and reports the configured capabilities; see [connection agreement](#connection-agreement). |
 | `system.health` | `control_state` | `ready` means the SQLite control store responded. It makes no Git, Incus, systemd, or plugin readiness claim. |
-| `system.inspect` | `projects`, `sessions`, `operations`, optional `git` | Counts persisted control records. Counts are not reconciled runtime or Git status. With Git configured, `git` contains the actual listener endpoint, SSH URL template, server public key, known-hosts entry, host client public key and key path, and the source driver's backend (`driver_backend`, `git` for the bundled driver) and version (`driver_version`). |
+| `system.inspect` | `projects`, `sessions`, `operations`, optional `git` | Counts persisted control records. Counts are not reconciled runtime or Git status. With Git configured, `git` contains the actual listener endpoint, SSH URL template, server public key, known-hosts entry, host client public key and key path, and the source driver's backend (`driver_backend`, `git` for the bundled driver), version (`driver_version`) and the SHA-256 its executable was checked against at launch (`driver_sha256`). |
 
 With trusted Git configuration, two more read-only methods are available:
 

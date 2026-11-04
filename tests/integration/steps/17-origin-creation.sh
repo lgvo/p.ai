@@ -204,11 +204,12 @@ incus_binary=$(command -v incus)
 # The gated driver's host unit holds each start before host readiness until
 # the scenario pushes /etc/p/test-release into the guest.
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_binary" "$P_TEST_GATED_RUNTIME_DRIVER")
-jq -n --arg state "$state" \
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
+jq -n --arg state "$state" --argjson source_driver "$source_driver" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" \
   --arg image "$fingerprint" \
   '{schema:"p.host/v1",state_dir:$state,
-   git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+   git:{listen:"127.0.0.1:0",driver:$source_driver},
    runtime:{driver:$driver,
     endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
     base_image_fingerprint:$image,

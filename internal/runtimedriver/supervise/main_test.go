@@ -355,6 +355,13 @@ func install(t *testing.T, path, from string) (string, string) {
 	return path, hex.EncodeToString(h.Sum(nil))
 }
 
+func chmod(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+	if err := os.Chmod(path, mode); err != nil {
+		t.Fatal(err)
+	}
+}
+
 // script writes a shell script to path with mode 0700 and returns its
 // SHA-256.
 func script(t *testing.T, path, body string) string {

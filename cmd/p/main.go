@@ -19,7 +19,6 @@ import (
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/daemon"
 	"github.com/lgvo/p.ai/internal/plugin"
-	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
 	"github.com/lgvo/p.ai/internal/tui"
 )
 
@@ -83,9 +82,6 @@ func run(args []string) error {
 			PluginAPI    string       `json:"plugin_api_version"`
 			Dependencies []dependency `json:"dependencies"`
 		}{buildVersion, runtime.Version(), api.Protocol, plugin.APIVersion, deps})
-	}
-	if len(args) == 1 && args[0] == "git-hook" {
-		return sourcegit.RunPreReceiveHook(context.Background(), os.Stdin)
 	}
 	if args[0] == "attach-helper" && len(args) == 1 {
 		return attachment.Helper(os.NewFile(3, "attachment-carrier"))

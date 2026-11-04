@@ -89,10 +89,11 @@ p plugins plan-assets "$step_dir/activation.json" org.p.codex-adapter > "$step_d
 test ! -e "$log_file"
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$(command -v incus)")
-jq -n --arg state "$state" --arg activation "$step_dir/activation.json" \
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
+jq -n --arg state "$state" --argjson source_driver "$source_driver" --arg activation "$step_dir/activation.json" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$image" \
   '{schema:"p.host/v1",state_dir:$state,
-    git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+    git:{listen:"127.0.0.1:0",driver:$source_driver},
     runtime:{agent_adapter:{activation_path:$activation,plugin_id:"org.p.codex-adapter"},
       driver:$driver,endpoint_prefix:$prefix,
       disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,

@@ -37,7 +37,11 @@ func Serve(parent context.Context, cfg control.HostConfig, store *control.Store)
 	}
 	scope, cancel := context.WithCancel(parent)
 	defer cancel()
-	git, err := newGitCapability(scope, cfg, store)
+	driver, endServices, err := newSourceDriver(scope, cfg)
+	if err != nil {
+		return err
+	}
+	git, err := newGitCapability(scope, cfg, store, driver, endServices)
 	if err != nil {
 		return err
 	}

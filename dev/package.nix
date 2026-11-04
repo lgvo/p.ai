@@ -62,16 +62,17 @@ buildGoModule {
   version = "0.1.0-dev";
   src = source;
   vendorHash = "sha256-YZmEJBF15LmqH7gACdtJUBoLDZ/oO2oy2ILwQK8NAUY=";
-  # P and the runtime driver it starts, which ships with it.
+  # P and the two drivers it starts, which ship with it.
   subPackages = [
     "cmd/p"
     "cmd/p-runtime-incus"
+    "cmd/p-source-git"
   ];
   env.CGO_ENABLED = "0";
   nativeBuildInputs = [ go-licenses ];
   postBuild = ''
-    go-licenses check --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC ./cmd/p ./cmd/p-runtime-incus
-    go-licenses save --save_path="$TMPDIR/p-module-notices" ./cmd/p ./cmd/p-runtime-incus
+    go-licenses check --allowed_licenses=Apache-2.0,MIT,BSD-2-Clause,BSD-3-Clause,ISC ./cmd/p ./cmd/p-runtime-incus ./cmd/p-source-git
+    go-licenses save --save_path="$TMPDIR/p-module-notices" ./cmd/p ./cmd/p-runtime-incus ./cmd/p-source-git
   '';
   postInstall = ''
     mkdir -p "$out/share/p/plugins"

@@ -136,7 +136,7 @@ release_on_running() {
 }
 start_daemon() {
   : > "$step_dir/daemon.err"
-  PATH="$step_dir/bin:$PATH" p daemon "$step_dir/host.json" > "$step_dir/daemon.out" 2> "$step_dir/daemon.err" &
+  p daemon "$step_dir/host.json" > "$step_dir/daemon.out" 2> "$step_dir/daemon.err" &
   daemon_pid=$!
   local deadline=$((SECONDS+30))
   while ((SECONDS < deadline)); do
@@ -154,11 +154,15 @@ incus_binary=$(command -v incus)
 # The gated driver's host unit holds each start before host readiness until
 # the scenario pushes /etc/p/test-release into the guest.
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_binary" "$P_TEST_GATED_RUNTIME_DRIVER")
-jq -n --arg state "$state" \
+# The source driver runs the fixture's Git wrapper, which is made below,
+# before the daemon starts.
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh" |
+  jq -c --arg git "$step_dir/bin/git" '.config.git=$git')
+jq -n --arg state "$state" --argjson source_driver "$source_driver" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" \
   --arg image "$fingerprint" \
   '{schema:"p.host/v1",state_dir:$state,
-   git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+   git:{listen:"127.0.0.1:0",driver:$source_driver},
    runtime:{driver:$driver,
     endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
     base_image_fingerprint:$image,
@@ -167,9 +171,11 @@ jq -n --arg state "$state" \
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 
 
-# Resolve host Git before installing the fixture PATH wrapper. Host ref changes
-# always use this absolute executable, so they cannot consume the pause counter.
-host_git=$(command -v git)
+# The source driver's Git is this wrapper, which runs the host's Git. Host ref
+# changes use the host's Git directly, so they cannot consume the pause
+# counter. The driver runs its Git with PATH set to the wrapper's directory,
+# so the wrapper uses shell builtins and absolute utilities only.
+host_git=$(readlink -f -- "$(command -v git)")
 sleep_binary=$(command -v sleep)
 mkdir -m 0700 "$step_dir/bin"
 printf '#!%s\n' "$(command -v bash)" > "$step_dir/bin/git"

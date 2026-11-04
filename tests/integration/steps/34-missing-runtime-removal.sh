@@ -18,7 +18,7 @@ competing=
 readiness_session=
 diagnosed_session=
 incus_real=$(command -v incus)
-host_git=$(command -v git)
+host_git=$(readlink -f -- "$(command -v git)")
 
 inc() { timeout 60 "$incus_real" --force-local --project user-1000 "$@"; }
 rpc() { timeout 35 p api "$socket" "$@"; }
@@ -158,12 +158,16 @@ activate "$P_TEST_SOURCE/plugins/bundled/codex-adapter" "$step_dir/agent.json" a
 base_image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base_image}" -eq 64
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_real")
-jq -n --arg state "$state" \
+# The source driver runs the fixture's Git wrapper, which is made below,
+# before the daemon starts.
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh" |
+  jq -c --arg git "$step_dir/bin/git" '.config.git=$git')
+jq -n --arg state "$state" --argjson source_driver "$source_driver" \
   --arg agent_activation "$step_dir/agent.json" \
   --arg agent_id "$(jq -er '.plugins[0].id' "$step_dir/agent.json")" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$base_image" \
   '{schema:"p.host/v1",state_dir:$state,
-    git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+    git:{listen:"127.0.0.1:0",driver:$source_driver},
     runtime:{agent_adapter:{activation_path:$agent_activation,plugin_id:$agent_id},
       driver:$driver,
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],
@@ -171,7 +175,7 @@ jq -n --arg state "$state" \
       project_policy:{network:"none",filesystem_mounts:[],command:["/run/current-system/sw/bin/bash"]}}}' > "$step_dir/host.json"
 bash "$P_TEST_SOURCE/tests/integration/public-egress-host-config.sh" "$step_dir/host.json"
 start_daemon() {
-  PATH="$step_dir/bin:$PATH" p daemon "$step_dir/host.json" >> "$step_dir/daemon.out" 2>> "$step_dir/daemon.err" &
+  p daemon "$step_dir/host.json" >> "$step_dir/daemon.out" 2>> "$step_dir/daemon.err" &
   daemon_pid=$!
   local deadline=$((SECONDS+30))
   while ((SECONDS < deadline)); do
@@ -221,9 +225,9 @@ wait_ready() {
   return 1
 }
 # Pause only Delete's read after durable secrets cleanup, before its ref effect
-# marker: the source driver's read of the head right before its deletion. The
-# driver runs Git with only Git's directory on PATH, so use shell builtins and
-# absolute utilities.
+# marker: the source driver's read of the head right before its deletion. This
+# wrapper is the driver's Git, which it runs with only the wrapper's directory
+# on PATH, so use shell builtins and absolute utilities.
 mkdir -m 0700 "$step_dir/bin"
 printf '#!%s\n' "$(command -v bash)" > "$step_dir/bin/git"
 printf 'host_git=%q\nfixture=%q\nsleep_binary=%q\n' "$host_git" "$step_dir" "$(command -v sleep)" >> "$step_dir/bin/git"

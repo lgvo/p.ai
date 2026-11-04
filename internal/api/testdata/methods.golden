@@ -25,6 +25,7 @@ control system.inspect
       client_key_path string
       driver_backend string
       driver_version string
+      driver_sha256 string
 control rpc.cancel
   request
     id raw

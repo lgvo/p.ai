@@ -3,6 +3,7 @@ package git
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
@@ -25,15 +26,20 @@ type fixture struct {
 	mu      sync.Mutex
 	commits int
 
-	// origins serves the origin controls' origins; nil until the first.
+	// gitPath is the git the driver runs; origins serves the origin
+	// controls' origins, through the ssh the driver runs.
+	gitPath string
 	origins *originServer
+	// hook is the executable the driver's Git service runs as its
+	// pre-receive hook: this test binary, which plays it.
+	hook string
 	// clients counts the service controls' clients.
 	clients int
 }
 
 // TestMain lets the test binary play the parts Git runs it in, by its first
-// argument: the pre-receive hook, as `p git-hook` does in production, and
-// the roles other tests register in testBinaryRoles.
+// argument: the pre-receive hook, as `p-source-git git-hook` does in
+// production, and the roles other tests register in testBinaryRoles.
 func TestMain(m *testing.M) {
 	if len(os.Args) > 1 {
 		if role, ok := testBinaryRoles[os.Args[1]]; ok {
@@ -70,21 +76,51 @@ func shortTempDir(t *testing.T) string {
 
 func newFixture(t *testing.T) conformance.Fixture {
 	t.Helper()
-	if _, err := exec.LookPath("git"); err != nil {
+	git, err := exec.LookPath("git")
+	if err != nil {
 		t.Skip("Git unavailable")
 	}
 	storage := filepath.Join(shortTempDir(t), "source")
-	f := &fixture{t: t, storage: storage}
+	f := &fixture{t: t, storage: storage, gitPath: git, origins: newOriginServer(t, git), hook: testBinary()}
 	f.driver = f.newDriver()
 	return f
 }
 
 func (f *fixture) newDriver() *Driver {
-	d, err := New(f.storage, []byte(`{}`))
+	d, err := New(f.storage, driverConfig(f.gitPath, f.origins.ssh()), f.hook)
 	if err != nil {
 		f.t.Fatal(err)
 	}
 	return d
+}
+
+// testBinary is this test binary, which plays the driver's pre-receive
+// hook (TestMain).
+func testBinary() string {
+	self, err := os.Executable()
+	if err != nil {
+		panic(err)
+	}
+	return self
+}
+
+// localConfig is the driver's config for a case that reaches no origin: the
+// git on PATH, and an ssh that is never run.
+func localConfig() json.RawMessage {
+	git, err := exec.LookPath("git")
+	if err != nil {
+		git = "/nonexistent/git"
+	}
+	return driverConfig(git, "/nonexistent/ssh")
+}
+
+// driverConfig is the driver's config naming the git and ssh it runs.
+func driverConfig(git, ssh string) json.RawMessage {
+	config, err := json.Marshal(map[string]string{"git": git, "ssh": ssh})
+	if err != nil {
+		panic(err)
+	}
+	return config
 }
 
 func (f *fixture) Driver() sourcedriver.Driver { return f.driver }

@@ -84,9 +84,10 @@ log="$step_dir/events.ndjson"
 jq --arg log "$log" '{schema:"p.activation/v1",plugins:[.selection|.config={path:$log,max_bytes:1048576}]}' "$step_dir/event-stage.json" > "$step_dir/events.json"
 image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$(command -v incus)")
-jq -n --arg state "$state" --arg agent "$step_dir/agent.json" \
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
+jq -n --arg state "$state" --argjson source_driver "$source_driver" --arg agent "$step_dir/agent.json" \
  --arg events "$step_dir/events.json" --arg prefix "$endpoint_prefix" --argjson driver "$driver" --arg image "$image" \
- '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+ '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:$source_driver},
  events:{activation_path:$events,plugin_id:"org.p.filelog"},
  runtime:{agent_adapter:{activation_path:$agent,plugin_id:"org.p.codex-adapter"},driver:$driver,endpoint_prefix:$prefix,
  disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],base_image_fingerprint:$image,

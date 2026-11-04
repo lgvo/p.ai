@@ -165,7 +165,9 @@ host configuration pins it by path and SHA-256 as `runtime.driver`
 mode and links before it starts it
 ([runtime isolation](runtime-isolation.md#driver-executable)). The driver holds
 the tmux session host, its systemd units and attach program, as its own files.
-Git source is P's built-in source driver, not a package.
+Git source is likewise P's first-party source driver, the `p-source-git`
+executable beside `bin/p`, pinned as `git.driver` and checked the same way
+before every start.
 `p version` reports the P and Go versions, the control protocol
 (`control_protocol`, such as `p.control/v2`), the plugin API version and the
 linked module versions as JSON.

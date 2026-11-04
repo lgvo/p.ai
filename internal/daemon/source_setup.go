@@ -2,30 +2,31 @@ package daemon
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/lgvo/p.ai/internal/control"
 	"github.com/lgvo/p.ai/internal/sourcedriver"
-	sourcegit "github.com/lgvo/p.ai/internal/sourcedriver/git"
+	"github.com/lgvo/p.ai/internal/sourcedriver/protocol"
+	"github.com/lgvo/p.ai/internal/sourcedriver/supervise"
 )
 
-// newSourceDriver starts the source driver host configuration selects: the
-// bundled Git driver, in process, over the state directory. It returns the
-// driver and the function that ends the Git services the driver runs and
-// refuses later ones. It refuses to start a driver whose storage or Git tools
-// fail its check, which also ends the Git services a driver that died left
-// running.
-//
-// This file is the only daemon code that names the bundled driver's package,
-// as internal/sourcedriver/git's boundary test checks; the rest of the daemon
-// reaches the driver as a sourcedriver.Driver.
+// newSourceDriver starts the source driver executable host configuration
+// pins and supervises it. It returns the driver, which core reaches only as
+// a sourcedriver.Driver, and the function that stops it. The daemon refuses
+// to start when the first start fails its launch checks, its digest, its
+// hello or the driver's Check; every restarted driver passes the same Check,
+// which ends the Git services a driver that died left running.
 func newSourceDriver(ctx context.Context, cfg control.HostConfig) (sourcedriver.Driver, func() error, error) {
-	driver, err := sourcegit.New(cfg.StateDir, cfg.Git.Driver.Config)
+	driver, err := supervise.Start(ctx, sourceDriverLaunch(cfg))
 	if err != nil {
-		return nil, nil, fmt.Errorf("source driver: %w", err)
-	}
-	if err := driver.Check(ctx); err != nil {
-		return nil, nil, fmt.Errorf("source driver: %w", err)
+		return nil, nil, err
 	}
 	return driver, driver.Close, nil
+}
+
+// sourceDriverLaunch is how the daemon starts the source driver host
+// configuration pins: its executable, and a hello with the driver's own
+// config and its storage, which is P's state directory.
+func sourceDriverLaunch(cfg control.HostConfig) supervise.Config {
+	return supervise.Config{Path: cfg.Git.Driver.Path, SHA256: cfg.Git.Driver.SHA256,
+		Hello: protocol.Hello{Config: cfg.Git.Driver.Config, Core: protocol.Core{Storage: cfg.StateDir}}}
 }

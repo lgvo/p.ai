@@ -239,11 +239,13 @@ func (d *Driver) scratchRepository(ctx context.Context, prefix string) (string, 
 // failure of Git is ErrUnavailable: Git does not tell an origin that could
 // not be reached from one that refused, and either way it answered nothing.
 func (d *Driver) originGit(ctx context.Context, dir string, env []string, args ...string) (string, error) {
-	base := []string{"-c", "protocol.allow=never", "-c", "protocol.ssh.allow=always", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "fetch.autoGC=false", "-c", "core.fsmonitor=false"}
-	cmd, err := d.originCommand(ctx, dir, env, append(append(base, noImplicitMaintenanceArgs()...), args...)...)
+	token, remove, err := d.recordOrigin()
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("the git against the origin could not be recorded: %w", err)
 	}
+	defer remove()
+	base := []string{"-c", "protocol.allow=never", "-c", "protocol.ssh.allow=always", "-c", "core.hooksPath=/dev/null", "-c", "credential.helper=", "-c", "fetch.autoGC=false", "-c", "core.fsmonitor=false"}
+	cmd := d.originCommand(ctx, dir, token, env, append(append(base, noImplicitMaintenanceArgs()...), args...)...)
 	out, diagnostic := &boundedOutput{max: originMaxOutput}, &boundedOutput{max: 4096}
 	cmd.Stdout, cmd.Stderr = out, diagnostic
 	err = cmd.Run()
@@ -259,33 +261,31 @@ func (d *Driver) originGit(ctx context.Context, dir string, env []string, args .
 	return out.buf.String(), nil
 }
 
-// originCommand is a git command against an origin, through the OpenSSH on
-// PATH, in its own process group, which cancellation kills whole so that an
-// ssh descendant holding Git's pipes cannot outlive it.
-func (d *Driver) originCommand(ctx context.Context, dir string, env []string, args ...string) (*exec.Cmd, error) {
-	sshPath, err := exec.LookPath("ssh")
-	if err != nil || !filepath.IsAbs(sshPath) {
-		return nil, errors.New("the OpenSSH executable is unavailable")
-	}
+// originCommand is a git command against an origin, through the OpenSSH
+// the driver's config names, in its own process group, which cancellation
+// kills whole so that an ssh descendant holding Git's pipes cannot outlive
+// it. Its environment carries token, the token of the record recordOrigin
+// wrote for it, which everything it starts inherits.
+func (d *Driver) originCommand(ctx context.Context, dir, token string, env []string, args ...string) *exec.Cmd {
 	cmd := exec.CommandContext(ctx, d.gitPath, args...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
 	cmd.WaitDelay = 250 * time.Millisecond
 	cmd.Dir = dir
-	cmd.Env = d.originEnv(sshPath, env...)
-	return cmd, nil
+	cmd.Env = d.originEnv(append(env, originTokenVariable+"="+token)...)
+	return cmd
 }
 
 // originEnv is the environment of Git against an origin: the daemon
 // account's HOME, for its OpenSSH configuration and known hosts, and its
 // SSH agent; no system or global Git configuration, no prompt, and an SSH
 // command that never asks.
-func (d *Driver) originEnv(sshPath string, extra ...string) []string {
+func (d *Driver) originEnv(extra ...string) []string {
 	// GIT_SSH_COMMAND is constant and holds no URL or ref. Git runs it
 	// through a shell, so the trusted executable path is quoted as one word.
-	quoted := "'" + strings.ReplaceAll(sshPath, "'", `'\''`) + "'"
+	quoted := "'" + strings.ReplaceAll(d.sshPath, "'", `'\''`) + "'"
 	env := []string{
-		"PATH=" + filepath.Dir(sshPath) + ":" + filepath.Dir(d.gitPath),
+		"PATH=" + filepath.Dir(d.sshPath) + ":" + filepath.Dir(d.gitPath),
 		"HOME=" + userHome(), "GIT_CONFIG_NOSYSTEM=1", "GIT_CONFIG_GLOBAL=/dev/null",
 		"GIT_TERMINAL_PROMPT=0", "GIT_NO_REPLACE_OBJECTS=1", "GIT_OPTIONAL_LOCKS=0",
 		"GIT_SSH_COMMAND=" + quoted + " -oBatchMode=yes -oNumberOfPasswordPrompts=0 -oClearAllForwardings=yes -oRequestTTY=no",

@@ -99,8 +99,9 @@ test -n "$session_uuid"
 stop_fixture
 test ! -e "$fixture_socket"
 
-jq -n --arg state "$state" \
-  '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}}}' > "$config"
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
+jq -n --arg state "$state" --argjson source_driver "$source_driver" \
+  '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:$source_driver}}' > "$config"
 
 rpc() { timeout 15 p api "$socket" "$@"; }
 start_daemon() {
@@ -166,9 +167,10 @@ instance_id=$(jq -er '.result.instance_id' <<< "$hello")
 # Git is configured without a runtime.
 jq -e '.result.capabilities == ["git"]' <<< "$hello" >/dev/null
 inspected=$(rpc system.inspect)
-jq -e --arg key "$state/git_client_key" \
+jq -e --arg key "$state/git_client_key" --arg digest "$(jq -er '.sha256' <<< "$source_driver")" \
   '.result.projects == 3 and .result.sessions == 1 and .result.operations == 1 and
    .result.git.driver_backend == "git" and .result.git.driver_version == "1" and
+   .result.git.driver_sha256 == $digest and
    .result.git.client_key_path == $key and
    ([.result.git.endpoint, .result.git.known_hosts, .result.git.client_public_key] |
      all(.[]; type == "string" and length > 0))' <<< "$inspected" >/dev/null

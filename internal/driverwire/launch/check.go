@@ -1,4 +1,4 @@
-package supervise
+package launch
 
 import (
 	"crypto/sha256"
@@ -12,8 +12,9 @@ import (
 )
 
 // ErrLaunchCheck is the error of a driver executable that failed its launch
-// checks: the daemon does not start it.
-var ErrLaunchCheck = errors.New("the runtime driver failed its launch checks")
+// checks: the daemon does not start it. A refusal names the driver first, as
+// in "the runtime driver failed its launch checks: ...".
+var ErrLaunchCheck = errors.New("failed its launch checks")
 
 // fileStat is what the launch checks read of a file: its type and
 // permission bits, owner and link count, and its identity.

@@ -29,7 +29,7 @@ func serveOnePushRole(args []string) int {
 	if len(args) != 2 {
 		return 2
 	}
-	d, err := New(args[0], []byte(`{}`))
+	d, err := New(args[0], localConfig(), testBinary())
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		return 1
@@ -207,7 +207,7 @@ func TestAStorageWhosePathHoldsGlobCharactersFindsItsServicesRecords(t *testing.
 		t.Fatal(err)
 	}
 	storage := filepath.Join(parent, "source")
-	d, err := New(storage, []byte(`{}`))
+	d, err := New(storage, localConfig(), testBinary())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -217,7 +217,7 @@ func TestAStorageWhosePathHoldsGlobCharactersFindsItsServicesRecords(t *testing.
 	ctx, cancel := context.WithCancel(t.Context())
 	defer cancel()
 	result := stallReceive(t, ctx, d, "own")
-	other, err := New(storage, []byte(`{}`))
+	other, err := New(storage, localConfig(), testBinary())
 	if err != nil {
 		t.Fatal(err)
 	}

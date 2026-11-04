@@ -15,23 +15,39 @@ import (
 	"testing"
 )
 
+// The tests here read the module's code for the source driver's boundaries.
+// The boundaries of its process are checked where it is started:
+//   - the launch checks, which refuse an executable as they refuse the
+//     runtime driver's, since both drivers start through the same code:
+//     internal/driverwire/launch check_test.go (TestLaunchChecksRefuse and
+//     its neighbors) and launch_test.go (TestTheFileCheckedIsTheFileStarted);
+//   - its environment, only the daemon's HOME and SSH_AUTH_SOCK:
+//     internal/sourcedriver/supervise
+//     TestTheDriverGetsOnlyTheDaemonsHomeAndSSHAgent;
+//   - the backend pin: internal/daemon git_test.go
+//     TestTheDaemonRefusesToStartWithAnotherBackendWhileAProjectExists.
+
 // module is the import path of P's module.
 const module = "github.com/lgvo/p.ai"
 
 // bundledDriver is this package's directory, relative to the module root.
 const bundledDriver = "internal/sourcedriver/git"
 
+// executable is the directory of p-source-git, the executable that serves
+// this package to the daemon, relative to the module root.
+const executable = "cmd/p-source-git"
+
 // testCode is the module's code that only tests run, besides _test.go files.
 const testCode = "tests/integration"
 
-// mayImportTheBundledDriver are the files outside this package that may
-// import it: the daemon's construction of the source driver, the CLI entry
-// whose git-hook command runs the driver's pre-receive hook, and the VM
-// fixtures that start the driver and run its hook as the daemon and
-// `p git-hook` do.
+// mayImportTheBundledDriver are the code outside this package that may
+// import it, files or directories: p-source-git, the executable that serves
+// it and runs its pre-receive hook, and test fixtures that run it in
+// process: the daemon's, for tests that need real Git, and the VM fixtures
+// that start it and run its hook.
 var mayImportTheBundledDriver = []string{
-	"internal/daemon/source_setup.go",
-	"cmd/p/main.go",
+	executable,
+	"internal/daemon/git_fixture_test.go",
 	"tests/integration/cmd/git-fixture/main.go",
 	"tests/integration/internal/bundledgit/bundledgit.go",
 }
@@ -76,15 +92,15 @@ var launches = map[string]map[string]int{
 
 // TestNoOtherCodeImportsTheBundledDriver reads every Go file of the module,
 // tests too: none outside this package imports it, except those in
-// mayImportTheBundledDriver, so the daemon and its tests reach the bundled
-// driver only as a sourcedriver.Driver.
+// mayImportTheBundledDriver, so the daemon reaches the bundled driver only
+// as the p-source-git executable, through a sourcedriver.Driver.
 func TestNoOtherCodeImportsTheBundledDriver(t *testing.T) {
 	for dir, files := range moduleCode(t) {
 		if dir == bundledDriver {
 			continue
 		}
 		for _, f := range files {
-			if imports(f.syntax, module+"/"+bundledDriver) && !slices.Contains(mayImportTheBundledDriver, f.rel) {
+			if imports(f.syntax, module+"/"+bundledDriver) && !inside(f.rel, mayImportTheBundledDriver) {
 				t.Errorf("%s imports the bundled source driver", f.rel)
 			}
 		}
@@ -143,19 +159,20 @@ func TestOnlyTheBundledDriverOpensItsStorage(t *testing.T) {
 	}
 }
 
-// TestTheBundledDriverImportsNoSQLiteOrRuntimeDriverCode follows this
-// package's production imports through the module: no package it reaches
-// imports SQLite (modernc.org/sqlite, or internal/control, which holds P's
-// database) or runtime driver code (internal/runtimedriver and below).
+// TestTheBundledDriverImportsNoSQLiteOrRuntimeDriverCode follows the
+// production imports of this package and of p-source-git, the executable
+// that serves it, through the module: no package they reach imports SQLite
+// (modernc.org/sqlite, or internal/control, which holds P's database) or
+// runtime driver code (internal/runtimedriver and below).
 func TestTheBundledDriverImportsNoSQLiteOrRuntimeDriverCode(t *testing.T) {
 	packages := productionCode(t)
-	reached := map[string]bool{bundledDriver: true}
-	for queue := []string{bundledDriver}; len(queue) > 0; queue = queue[1:] {
+	reached := map[string]bool{bundledDriver: true, executable: true}
+	for queue := []string{bundledDriver, executable}; len(queue) > 0; queue = queue[1:] {
 		for _, f := range packages[queue[0]] {
 			for _, imp := range f.syntax.Imports {
 				p, _ := strconv.Unquote(imp.Path.Value)
 				if within(p, "modernc.org/sqlite") || within(p, module+"/internal/control") || within(p, module+"/internal/runtimedriver") {
-					t.Errorf("%s, which the bundled driver reaches, imports %s", f.rel, p)
+					t.Errorf("%s, which the bundled driver or p-source-git reaches, imports %s", f.rel, p)
 					continue
 				}
 				if dir, ok := strings.CutPrefix(p, module+"/"); ok && !reached[dir] {

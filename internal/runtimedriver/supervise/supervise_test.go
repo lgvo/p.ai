@@ -3,7 +3,6 @@ package supervise
 import (
 	"encoding/json"
 	"errors"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -12,18 +11,19 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lgvo/p.ai/internal/driverwire/launch"
 	"github.com/lgvo/p.ai/internal/runtimedriver"
 	"github.com/lgvo/p.ai/internal/runtimedriver/protocol"
 )
 
 // fast restarts a dead driver within a fraction of a second.
-var fast = backoff{min: 20 * time.Millisecond, max: 200 * time.Millisecond, stable: time.Minute}
+var fast = launch.Backoff{Min: 20 * time.Millisecond, Max: 200 * time.Millisecond, Stable: time.Minute}
 
 // supervised starts the fixture driver under a supervisor with backoff b.
-func supervised(t *testing.T, b backoff) (*Supervisor, string) {
+func supervised(t *testing.T, b launch.Backoff) (*Supervisor, string) {
 	t.Helper()
 	path, digest := installed(t, fixtureDriver)
-	s, err := start(t.Context(), Config{Path: path, SHA256: digest, Hello: anyHello}, uint32(os.Geteuid()), b)
+	s, err := start(t.Context(), Config{Path: path, SHA256: digest, Hello: anyHello}, b)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -41,7 +41,7 @@ func supervisedDurable(t *testing.T) (*Supervisor, string) {
 		t.Fatal(err)
 	}
 	path, digest := installed(t, fixtureDurable)
-	s, err := start(t.Context(), Config{Path: path, SHA256: digest, Hello: protocol.Hello{Config: config}}, uint32(os.Geteuid()), fast)
+	s, err := start(t.Context(), Config{Path: path, SHA256: digest, Hello: protocol.Hello{Config: config}}, fast)
 	if err != nil {
 		t.Fatalf("start: %v", err)
 	}
@@ -100,29 +100,6 @@ func TestTheDriverGetsOnlyItsPathAndConnection(t *testing.T) {
 	}
 }
 
-// A file put at the path after the launch checks is never started.
-func TestTheFileCheckedIsTheFileStarted(t *testing.T) {
-	path, digest := installed(t, fixtureDriver)
-	exe, err := checkExecutable(path, digest, uint32(os.Geteuid()))
-	if err != nil {
-		t.Fatalf("the launch checks refused the fixture: %v", err)
-	}
-	defer exe.Close()
-	replacement := filepath.Join(filepath.Dir(path), "replacement")
-	script(t, replacement, "#!/bin/sh\nexit 7\n")
-	if err := os.Rename(replacement, path); err != nil {
-		t.Fatal(err)
-	}
-	p, err := startChecked(t.Context(), path, exe, anyHello)
-	if err != nil {
-		t.Fatalf("the checked driver did not start: %v", err)
-	}
-	defer p.stop()
-	if _, err := startedAs(t, p.client); err != nil {
-		t.Fatalf("the started process is not the checked driver: %v", err)
-	}
-}
-
 // The first start's failure is the supervisor's, so the daemon refuses to
 // start.
 func TestStartReturnsTheFirstStartsFailure(t *testing.T) {
@@ -150,7 +127,7 @@ func TestStartReturnsTheFirstStartsFailure(t *testing.T) {
 		}, "hello"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
-			s, err := start(t.Context(), c.arrange(t), uint32(os.Geteuid()), fast)
+			s, err := start(t.Context(), c.arrange(t), fast)
 			if err == nil {
 				s.Close()
 				t.Fatal("the supervisor started")
@@ -163,7 +140,7 @@ func TestStartReturnsTheFirstStartsFailure(t *testing.T) {
 }
 
 func TestADriverKilledInACallIsRestarted(t *testing.T) {
-	s, _ := supervised(t, backoff{min: 300 * time.Millisecond, max: time.Second, stable: time.Minute})
+	s, _ := supervised(t, launch.Backoff{Min: 300 * time.Millisecond, Max: time.Second, Stable: time.Minute})
 	before, err := startedAs(t, s)
 	if err != nil {
 		t.Fatalf("HostLog: %v", err)
@@ -272,25 +249,12 @@ func TestARestartWaitsForTheLaunchChecks(t *testing.T) {
 	if _, err := s.Start(t.Context(), session(crashRef)); !errors.Is(err, runtimedriver.ErrUnknownOutcome) {
 		t.Fatalf("a Start the driver died in = %v, want ErrUnknownOutcome", err)
 	}
-	time.Sleep(10 * fast.max)
+	time.Sleep(10 * fast.Max)
 	if err := s.Check(t.Context()); !errors.Is(err, runtimedriver.ErrUnavailable) {
 		t.Fatalf("Check while the driver's file fails the launch checks = %v, want ErrUnavailable", err)
 	}
 	chmod(t, path, 0o700)
 	eventually(t, "the driver to restart", func() bool { return s.Check(t.Context()) == nil })
-}
-
-func TestTheBackoffDoublesUpToItsBound(t *testing.T) {
-	b := backoff{min: 100 * time.Millisecond, max: time.Second}
-	var got []time.Duration
-	for wait := time.Duration(0); len(got) < 6; {
-		wait = b.next(wait)
-		got = append(got, wait)
-	}
-	want := []time.Duration{100 * time.Millisecond, 200 * time.Millisecond, 400 * time.Millisecond, 800 * time.Millisecond, time.Second, time.Second}
-	if !slices.Equal(got, want) {
-		t.Fatalf("waits %v, want %v", got, want)
-	}
 }
 
 func TestCloseStopsTheDriver(t *testing.T) {

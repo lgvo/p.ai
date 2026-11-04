@@ -19,18 +19,13 @@ import (
 )
 
 // originServer serves a fixture's origins: bare repositories in dir, which
-// the driver reaches through the ssh script in dir/bin, first in PATH for the
-// case. The URL git@fixture:o<n>.git names dir/o<n>.git.
+// the driver reaches through the ssh script at dir/bin/ssh, the ssh its
+// config names. The URL git@fixture:o<n>.git names dir/o<n>.git.
 type originServer struct {
 	dir   string
 	count int
 }
 
-// sshScript stands in for OpenSSH. Git runs it as `ssh [options] host
-// command`, with the command last; it refuses the environment the driver
-// must not leave out, logs the Git variables that must not reach it, and
-// runs the Git service on the origin the command's path names. Markers
-// beside an origin cut it off or lose the next push's answer after it lands.
 const sshScript = `#!/bin/sh
 for command; do :; done
 [ "$GIT_TERMINAL_PROMPT" = 0 ] || exit 81
@@ -56,31 +51,26 @@ exec @GIT@ "$service" "$repo"
 // shellQuote quotes s as one word of a POSIX shell.
 func shellQuote(s string) string { return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'" }
 
-// originServer starts the fixture's origin server on first use: it writes
-// the ssh script and puts it first in PATH until the case ends.
-func (f *fixture) originServer() *originServer {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.origins != nil {
-		return f.origins
-	}
-	git, err := exec.LookPath("git")
-	if err != nil {
-		f.t.Fatal(err)
-	}
-	dir := f.t.TempDir()
-	bin := filepath.Join(dir, "bin")
+// newOriginServer writes the ssh script of a fixture's origins into a new
+// directory.
+func newOriginServer(t *testing.T, git string) *originServer {
+	t.Helper()
+	dir := t.TempDir()
 	script := strings.NewReplacer("@DIR@", shellQuote(dir), "@GIT@", shellQuote(git)).Replace(sshScript)
-	if err := os.Mkdir(bin, 0o700); err != nil {
-		f.t.Fatal(err)
+	if err := os.Mkdir(filepath.Join(dir, "bin"), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(script), 0o700); err != nil {
-		f.t.Fatal(err)
+	s := &originServer{dir: dir}
+	if err := os.WriteFile(s.ssh(), []byte(script), 0o700); err != nil {
+		t.Fatal(err)
 	}
-	f.t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
-	f.origins = &originServer{dir: dir}
-	return f.origins
+	return s
 }
+
+// ssh is the path of the script that stands in for OpenSSH.
+func (s *originServer) ssh() string { return filepath.Join(s.dir, "bin", "ssh") }
+
+func (f *fixture) originServer() *originServer { return f.origins }
 
 // originRepository is the bare repository of the origin at url.
 func (f *fixture) originRepository(url string) string {
@@ -366,13 +356,11 @@ func TestOriginGitDoesNotWaitForEscapedSSHDescendants(t *testing.T) {
 		t.Skip("setsid or sleep unavailable")
 	}
 	f := newFixture(t).(*fixture)
-	bin := t.TempDir()
-	pidFile := filepath.Join(bin, "child-pid")
+	pidFile := filepath.Join(t.TempDir(), "child-pid")
 	script := "#!/bin/sh\n" + shellQuote(setsid) + " " + shellQuote(sleep) + " 4 &\nprintf '%s' \"$!\" > " + shellQuote(pidFile) + "\nexit 1\n"
-	if err := os.WriteFile(filepath.Join(bin, "ssh"), []byte(script), 0o700); err != nil {
+	if err := os.WriteFile(f.originServer().ssh(), []byte(script), 0o700); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 	ctx, cancel := context.WithTimeout(t.Context(), 150*time.Millisecond)
 	defer cancel()
 	start := time.Now()

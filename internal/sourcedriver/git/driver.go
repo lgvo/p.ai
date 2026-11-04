@@ -23,6 +23,7 @@ import (
 	"syscall"
 
 	"github.com/lgvo/p.ai/internal/sourcedriver"
+	"github.com/lgvo/p.ai/internal/strictjson"
 )
 
 // Backend is the backend the bundled driver describes.
@@ -34,7 +35,9 @@ const Version = "1"
 // Driver is the bundled source driver.
 type Driver struct {
 	storage string // absolute and clean
-	gitPath string // absolute
+	gitPath string // absolute and clean
+	sshPath string // absolute and clean
+	hook    string // absolute and clean, and quotable as one shell word
 
 	// seams are the points where the conformance fixture acts inside a
 	// call; all are empty in production.
@@ -46,29 +49,40 @@ type Driver struct {
 
 var _ sourcedriver.Driver = (*Driver)(nil)
 
+// Config is the bundled driver's own settings, the config object of
+// git.driver in host configuration: the git and ssh it runs, by absolute
+// path. The driver inherits no PATH; the PATH it gives Git is theirs.
+type Config struct {
+	Git string `json:"git"`
+	SSH string `json:"ssh"`
+}
+
 // New returns the bundled driver over storage, a directory whose parent
 // exists, with config, the driver's own settings from host configuration:
-// a JSON object with no settings yet. It touches nothing; Check makes the
-// storage.
-func New(storage string, config json.RawMessage) (*Driver, error) {
-	if !filepath.IsAbs(storage) || filepath.Clean(storage) != storage {
+// exactly the settings of Config, each an absolute clean path. hook is the
+// executable its Git service's pre-receive hook runs as `<hook> git-hook`,
+// by absolute clean path, which its caller names: p-source-git's own file,
+// as the daemon checked it, or the program of a caller that runs the
+// driver in its own process. It touches nothing; Check makes the storage
+// and runs the git.
+func New(storage string, config json.RawMessage, hook string) (*Driver, error) {
+	if !absoluteClean(storage) {
 		return nil, errors.New("source storage must be an absolute, clean path")
 	}
-	var settings struct{}
-	decoder := json.NewDecoder(bytes.NewReader(config))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&settings); err != nil || bytes.TrimSpace(config)[0] != '{' {
-		return nil, errors.New("the git source driver's config must be an empty JSON object")
+	if !absoluteClean(hook) || strings.ContainsAny(hook, "'\n\r") {
+		return nil, errors.New("the hook's executable must be an absolute clean path the hook can quote")
 	}
-	gitPath, err := exec.LookPath("git")
-	if err != nil {
-		return nil, err
+	var c Config
+	if err := strictjson.Decode(config, &c); err != nil {
+		return nil, fmt.Errorf("the git source driver's config: %w", err)
 	}
-	if !filepath.IsAbs(gitPath) {
-		return nil, errors.New("the Git executable must resolve to an absolute path")
+	if !absoluteClean(c.Git) || !absoluteClean(c.SSH) {
+		return nil, errors.New("the git source driver's config must name git and ssh by absolute clean paths")
 	}
-	return &Driver{storage: storage, gitPath: gitPath}, nil
+	return &Driver{storage: storage, gitPath: c.Git, sshPath: c.SSH, hook: hook}, nil
 }
+
+func absoluteClean(path string) bool { return filepath.IsAbs(path) && filepath.Clean(path) == path }
 
 func (d *Driver) Describe() sourcedriver.Description {
 	return sourcedriver.Description{Backend: Backend, Version: Version, Commands: []string{"git-upload-pack", "git-receive-pack"}}

@@ -123,32 +123,33 @@ func TestKeyPersistsAndRejectsUnsafeReplacement(t *testing.T) {
 	}
 }
 
-func TestSourceDriverStartsOnlyWithItsOwnConfigOverPrivateStorage(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "state")
-	if err := os.Mkdir(state, 0700); err != nil {
-		t.Fatal(err)
-	}
-	git := func(config string) *control.GitConfig {
-		return &control.GitConfig{Driver: control.SourceDriverConfig{Name: control.GitDriver, Config: json.RawMessage(config)}}
-	}
-	if _, _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{"unknown":1}`)}); err == nil {
-		t.Fatal("the driver started with a setting it does not know")
-	}
-	if _, _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err != nil {
-		t.Fatalf("the driver did not start over private storage: %v", err)
-	}
-	if err := os.Chmod(state, 0770); err != nil {
-		t.Fatal(err)
-	}
-	if _, _, err := newSourceDriver(t.Context(), control.HostConfig{StateDir: state, Git: git(`{}`)}); err == nil {
-		t.Fatal("the driver started over storage others can write")
-	}
+// startGit makes the Git capability over store's state directory, with
+// P's Git endpoint on a free loopback port and the bundled source driver in
+// process.
+func startGit(t *testing.T, store *control.Store) (*gitCapability, error) {
+	cfg := control.HostConfig{StateDir: store.StateDir(), Git: &control.GitConfig{Listen: "127.0.0.1:0"}}
+	driver, endServices := bundledSource(t, store.StateDir())
+	return newGitCapability(t.Context(), cfg, store, driver, endServices)
 }
 
-// gitHostConfig is host configuration with P's Git endpoint on a free
-// loopback port and the bundled source driver over store's state directory.
-func gitHostConfig(store *control.Store) control.HostConfig {
-	return control.HostConfig{StateDir: store.StateDir(), Git: &control.GitConfig{Listen: "127.0.0.1:0", Driver: control.SourceDriverConfig{Name: control.GitDriver, Config: json.RawMessage(`{}`)}}}
+func TestInspectNamesTheSourceDriverItRuns(t *testing.T) {
+	store, err := control.OpenStore(filepath.Join(t.TempDir(), "state"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	digest := strings.Repeat("0f", 32)
+	cfg := control.HostConfig{StateDir: store.StateDir(), Git: &control.GitConfig{Listen: "127.0.0.1:0",
+		Driver: control.DriverConfig{Path: "/opt/p/bin/p-source-git", SHA256: digest}}}
+	driver, endServices := bundledSource(t, store.StateDir())
+	git, err := newGitCapability(t.Context(), cfg, store, driver, endServices)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer git.close()
+	if got := *git.info; got.DriverBackend != "git" || got.DriverVersion != driver.Describe().Version || got.DriverSHA256 != digest {
+		t.Fatalf("inspect named the source driver as %q %q %q", got.DriverBackend, got.DriverVersion, got.DriverSHA256)
+	}
 }
 
 func TestTheDaemonRefusesToStartWithAnotherBackendWhileAProjectExists(t *testing.T) {
@@ -163,7 +164,7 @@ func TestTheDaemonRefusesToStartWithAnotherBackendWhileAProjectExists(t *testing
 	if err := store.CreateProject(t.Context(), "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	git, err := newGitCapability(t.Context(), gitHostConfig(store), store)
+	git, err := startGit(t, store)
 	if err == nil {
 		git.close()
 	}
@@ -178,7 +179,7 @@ func TestTheDaemonStartsAgainOverTheProjectsItsBackendMade(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	first, err := newGitCapability(t.Context(), gitHostConfig(store), store)
+	first, err := startGit(t, store)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -186,7 +187,7 @@ func TestTheDaemonStartsAgainOverTheProjectsItsBackendMade(t *testing.T) {
 	if err := store.CreateProject(t.Context(), "app", json.RawMessage(`{}`)); err != nil {
 		t.Fatal(err)
 	}
-	second, err := newGitCapability(t.Context(), gitHostConfig(store), store)
+	second, err := startGit(t, store)
 	if err != nil {
 		t.Fatalf("the daemon did not start again over its backend's project: %v", err)
 	}
@@ -199,7 +200,7 @@ func TestClosingTheGitCapabilityEndsTheDriversGitService(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer store.Close()
-	git, err := newGitCapability(t.Context(), gitHostConfig(store), store)
+	git, err := startGit(t, store)
 	if err != nil {
 		t.Fatal(err)
 	}

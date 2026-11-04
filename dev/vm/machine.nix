@@ -246,7 +246,19 @@ in
       settings = {
         git = {
           listen = "127.0.0.1:0";
-          driver = { name = "git"; config = { }; };
+          # Pinned here, not left to the module, as the runtime driver is.
+          # The driver inherits no PATH, so its config names git and ssh.
+          driver = rec {
+            path = "${pPackage}/bin/p-source-git";
+            sha256 = lib.removeSuffix "\n" (builtins.readFile
+              (pkgs.runCommand "p-source-driver-sha256" {} ''
+                sha256sum ${path} | cut -d' ' -f1 > "$out"
+              ''));
+            config = {
+              git = "${pkgs.git}/bin/git";
+              ssh = "${pkgs.openssh}/bin/ssh";
+            };
+          };
         };
         events = {
           activation_path = "${pState}/activation.json";

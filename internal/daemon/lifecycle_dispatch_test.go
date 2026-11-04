@@ -73,10 +73,7 @@ func TestLifecycleDispatchSaturation(t *testing.T) {
 					t.Fatal(err)
 				}
 				// The restarted daemon's driver over the same storage.
-				driver, _, err = newSourceDriver(t.Context(), gitHostConfig(store))
-				if err != nil {
-					t.Fatal(err)
-				}
+				driver, _ = bundledSource(t, state)
 				ctx, cancel = context.WithCancel(context.Background())
 				defer cancel()
 				l = &lifecycle{ctx: ctx, store: store, git: &gitCapability{driver: driver}, working: map[string]bool{}, queueSlots: make(chan struct{}, 8)}

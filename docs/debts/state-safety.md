@@ -96,28 +96,32 @@
   - 2026-11-03: "core holds only the runtime driver" moved the driver to
     internal/runtimedriver/incus unchanged; orphaned builders are still not collected.
 
-## A hung runtime driver is never restarted
+## A hung driver is never restarted
 
-- Where: internal/runtimedriver/supervise supervise.go `Supervisor.supervise`;
-  internal/runtimedriver/protocol client.go `Client.call`
-- Problem: The supervisor restarts the runtime driver only when its process exits or its
-  connection is lost. A driver that stops answering while it keeps its connection open is
-  not detected: nothing checks that it still answers, and each call waits until its own
-  context ends.
-- Evidence: `supervise` waits only on the client's `Done` and the process's exit; `call`
+- Where: internal/driverwire/launch launch.go `Supervisor.supervise`; internal/driverwire
+  client.go `Client.Call`
+- Problem: The supervisor restarts a driver, the runtime driver or the source driver, only
+  when its process exits or its connection is lost. A driver that stops answering while it
+  keeps its connection open is not detected: nothing checks that it still answers, and each
+  call waits until its own context ends.
+- Evidence: `supervise` waits only on the client's `Done` and the process's exit; `Call`
   returns only on an answer, a lost connection or its context's end. The connection ends on
   its own only when the driver reads nothing for 30 seconds while core writes to it
   (`writeWait`). A worker's driver calls run on the daemon's context, which ends only when
   the daemon stops.
-- Risk: a hung driver stalls every runtime operation, and keeps the session locks those
-  operations hold, until the operator restarts the daemon; requests answer only when their
-  clients give up.
+- Risk: a hung runtime driver stalls every runtime operation, and keeps the session locks
+  those operations hold, until the operator restarts the daemon; requests answer only when
+  their clients give up. A hung source driver does the same to every Git effect, and its
+  Git services keep their leases, which keep lifecycle guards waiting.
 - Fix: a liveness check on the driver connection, a periodic call with a deadline, that
   kills a driver that misses it, so the supervisor restarts it and calls in flight end as
   after a crash.
 - Fix when: a hung driver is seen, or the next change to driver supervision.
 - Left by: the maintainer's orchestrator, which accepted it for step 8's M7 (a shortcut the
   change takes).
-- Added 2026-11-03, 1 case:
+- Added 2026-11-03, updated 2026-11-03, 2 cases:
   - 2026-11-03: "the runtime driver as its own executable" (step 8, M7) restarts a driver
     that exits or drops its connection and leaves a hung one undetected.
+  - 2026-11-03: "the source driver as its own executable" (step 9, S7) supervises
+    `p-source-git` with the same launch code, shared with the runtime driver in
+    internal/driverwire, and leaves a hung source driver undetected too.

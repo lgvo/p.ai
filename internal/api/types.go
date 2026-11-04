@@ -55,6 +55,7 @@ type GitInfo struct {
 	ClientKeyPath   string `json:"client_key_path"`
 	DriverBackend   string `json:"driver_backend"`
 	DriverVersion   string `json:"driver_version"`
+	DriverSHA256    string `json:"driver_sha256"`
 }
 
 // CancelResult acknowledges a cancellation request, including when its

@@ -190,8 +190,9 @@ write_ssh_config "$fixture_ssh/id_origin"
 full_url=pdev@origin-fixture:full.git
 empty_url=ssh://pdev@origin-fixture/empty.git
 bad_url=pdev@origin-unreachable:full.git
-jq -n --arg state "$state" \
-  '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}}}' > "$config"
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
+jq -n --arg state "$state" --argjson source_driver "$source_driver" \
+  '{schema:"p.host/v1",state_dir:$state,git:{listen:"127.0.0.1:0",driver:$source_driver}}' > "$config"
 start_daemon
 # A Git-only daemon advertises only git, yet serves the operation methods that
 # origin changes are waited on with.

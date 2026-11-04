@@ -75,12 +75,13 @@ activate "$P_TEST_SOURCE/plugins/bundled/codex-adapter" "$step_dir/agent.json" a
 base_image=$(cat "$P_TEST_RUNTIME_IMAGE_FILE")
 test "${#base_image}" -eq 64
 driver=$(bash "$P_TEST_SOURCE/tests/integration/runtime-driver-config.sh" "$incus_real")
-jq -n --arg state "$state" \
+source_driver=$(bash "$P_TEST_SOURCE/tests/integration/source-driver-config.sh")
+jq -n --arg state "$state" --argjson source_driver "$source_driver" \
   --arg agent_activation "$step_dir/agent.json" \
   --arg agent_id "$(jq -er '.plugins[0].id' "$step_dir/agent.json")" \
   --argjson driver "$driver" --arg prefix "$endpoint_prefix" --arg image "$base_image" \
   '{schema:"p.host/v1",state_dir:$state,
-    git:{listen:"127.0.0.1:0",driver:{name:"git",config:{}}},
+    git:{listen:"127.0.0.1:0",driver:$source_driver},
     runtime:{agent_adapter:{activation_path:$agent_activation,plugin_id:$agent_id},
       driver:$driver,
       endpoint_prefix:$prefix,disk_source_ceilings:["/var/lib/p-vm/endpoints","/var/lib/p-vm/grants"],

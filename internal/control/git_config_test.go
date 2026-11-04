@@ -16,10 +16,10 @@ func TestGitHostConfigIsOptionalAndLoopbackOnly(t *testing.T) {
 		valid bool
 	}{
 		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state"}`, true},
-		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}}}`, true},
-		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"0.0.0.0:2222","driver":{"name":"git","config":{}}}}`, false},
-		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"localhost:2222","driver":{"name":"git","config":{}}}}`, false},
-		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:2222","driver":{"name":"git","config":{}},"secret":1}}`, false},
+		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}}}}`, true},
+		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"0.0.0.0:2222","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}}}}`, false},
+		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"localhost:2222","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}}}}`, false},
+		{`{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:2222","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}},"secret":1}}`, false},
 	} {
 		if err := os.WriteFile(path, []byte(test.data), 0600); err != nil {
 			t.Fatal(err)
@@ -35,7 +35,7 @@ func TestRuntimeConfigRequiresConfinedBaseline(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":`
+	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":`
 	for _, test := range []struct {
 		policy string
 		valid  bool
@@ -61,7 +61,7 @@ func TestRuntimeDriverIsAnExecutablePinnedByPathAndDigestWithItsOwnConfig(t *tes
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
+	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}}},"runtime":{"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
 	digest := strings.Repeat("0f", 32)
 	executable := `"path":"/opt/p/bin/p-runtime-incus","sha256":"` + digest + `"`
 	incusConfig := `{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}`
@@ -100,25 +100,31 @@ func TestRuntimeDriverIsAnExecutablePinnedByPathAndDigestWithItsOwnConfig(t *tes
 	}
 }
 
-func TestGitDriverSelectsTheGitDriverByNameAndCarriesItsOwnConfig(t *testing.T) {
+func TestGitDriverIsAnExecutablePinnedByPathAndDigestWithItsOwnConfig(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
 	prefix := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0"`
+	digest := strings.Repeat("0f", 32)
+	executable := `"path":"/opt/p/bin/p-source-git","sha256":"` + digest + `"`
 	for _, tc := range []struct {
 		name, driver string
 		valid        bool
 	}{
-		{"git", `,"driver":{"name":"git","config":{}}`, true},
-		{"config left to the driver", `,"driver":{"name":"git","config":{"anything":1}}`, true},
+		{"pinned executable", `,"driver":{` + executable + `,"config":{}}`, true},
+		{"config left to the driver", `,"driver":{` + executable + `,"config":{"anything":1}}`, true},
 		{"absent", ``, false},
-		{"unknown driver", `,"driver":{"name":"forgejo","config":{}}`, false},
-		{"missing name", `,"driver":{"config":{}}`, false},
-		{"missing config", `,"driver":{"name":"git"}`, false},
-		{"null config", `,"driver":{"name":"git","config":null}`, false},
-		{"config not an object", `,"driver":{"name":"git","config":[]}`, false},
-		{"executable path", `,"driver":{"name":"git","path":"` + dir + `/p-source-git","config":{}}`, false},
-		{"source package selection", `,"driver":{"name":"git","config":{}},"activation_path":"` + dir + `/git.json","source_plugin_id":"org.p.git"`, false},
+		{"missing path", `,"driver":{"sha256":"` + digest + `","config":{}}`, false},
+		{"relative path", `,"driver":{"path":"bin/p-source-git","sha256":"` + digest + `","config":{}}`, false},
+		{"unclean path", `,"driver":{"path":"/opt/p/../p/bin/p-source-git","sha256":"` + digest + `","config":{}}`, false},
+		{"missing digest", `,"driver":{"path":"/opt/p/bin/p-source-git","config":{}}`, false},
+		{"short digest", `,"driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + digest[2:] + `","config":{}}`, false},
+		{"uppercase digest", `,"driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.ToUpper(digest) + `","config":{}}`, false},
+		{"missing config", `,"driver":{` + executable + `}`, false},
+		{"null config", `,"driver":{` + executable + `,"config":null}`, false},
+		{"config not an object", `,"driver":{` + executable + `,"config":[]}`, false},
+		{"driver chosen by name", `,"driver":{"name":"git",` + executable + `,"config":{}}`, false},
+		{"source package selection", `,"driver":{` + executable + `,"config":{}},"activation_path":"` + dir + `/git.json","source_plugin_id":"org.p.git"`, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			if err := os.WriteFile(path, []byte(prefix+tc.driver+`}}`), 0600); err != nil {
@@ -128,8 +134,8 @@ func TestGitDriverSelectsTheGitDriverByNameAndCarriesItsOwnConfig(t *testing.T) 
 			if (err == nil) != tc.valid {
 				t.Fatalf("driver selection valid=%v err=%v", tc.valid, err)
 			}
-			if tc.name == "git" && (cfg.Git.Driver.Name != "git" || string(cfg.Git.Driver.Config) != `{}`) {
-				t.Fatalf("driver selection %+v", cfg.Git.Driver)
+			if d := cfg.Git; tc.name == "pinned executable" && (d.Driver.Path != "/opt/p/bin/p-source-git" || d.Driver.SHA256 != digest || string(d.Driver.Config) != `{}`) {
+				t.Fatalf("driver selection %+v", d.Driver)
 			}
 		})
 	}
@@ -141,7 +147,7 @@ func TestRuntimeSelectsNoSessionHostPackage(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
+	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
 	for _, tc := range []struct {
 		name, extra string
 		valid       bool
@@ -167,7 +173,7 @@ func TestRuntimeAgentAdapterIsOnlyTrustedOptionalSelection(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
+	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
 	for _, tc := range []struct {
 		name, extra string
 		valid       bool
@@ -194,7 +200,7 @@ func TestRuntimeEnvironmentSelectsOnlySystemAndBuilderPool(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "host.json")
 	check := privateFixtureChecker(dir)
-	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"name":"git","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
+	base := `{"schema":"p.host/v1","state_dir":"` + dir + `/state","git":{"listen":"127.0.0.1:0","driver":{"path":"/opt/p/bin/p-source-git","sha256":"` + strings.Repeat("0f", 32) + `","config":{}}},"runtime":{"driver":{"path":"/opt/p/bin/p-runtime-incus","sha256":"` + strings.Repeat("0f", 32) + `","config":{"binary":"` + dir + `/incus","user_socket":"` + dir + `/unix.socket.user","project":"p-test"}},"endpoint_prefix":"` + dir + `/endpoints","disk_source_ceilings":["` + dir + `/endpoints"],"base_image_fingerprint":"` + strings.Repeat("a", 64) + `","project_policy":{"network":"none","filesystem_mounts":[],"command":["/bin/sh"]}`
 	for _, tc := range []struct {
 		name, extra string
 		valid       bool

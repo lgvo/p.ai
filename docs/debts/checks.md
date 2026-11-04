@@ -81,3 +81,25 @@
 - Added 2026-11-03, 1 case:
   - 2026-11-03: "the runtime driver as its own executable" (step 8, M7) finished the
     runtime driver without it.
+
+## Two TUI mock tests read the screen before its sessions load
+
+- Where: tests/integration/tui-mock-test.py, `setUp` (waits for "All project sessions" and
+  "q/Esc back"), `test_01_navigation_reports_policy_branches_operations_search_resize`
+  (reads "1–N of 120" at once) and `launcher` (asserts "of 4 · selected" at once)
+- Problem: The view's title and controls render before the first page of sessions arrives,
+  when the list still reads "0–0 of 0". Both tests wait for the title, then read the screen
+  once and expect the loaded count, so a slow first page fails them. `test_zz_all_tui_rpc_actions_covered`
+  then fails too, because test_01 stopped before its actions.
+- Evidence: 2026-11-03, in step 9 S7's checks, `test_07_launcher_owns_background_server_and_cleans_up`
+  failed once with the screen at "0–0 of 0 · selected 0", and later test_01 failed once on a
+  missing "1–N of 120", while two VMs ran; each passed on two reruns.
+- Risk: `just tui-tests` fails at random under load, and reruns can hide a real failure of
+  the first page.
+- Fix: wait for the loaded count ("of 120", "of 4 · selected") with `self.wait` before
+  reading it.
+- Fix when: the next change to the TUI mock tests, or the next time it fails a check.
+- Left by: the agent, by rule (a problem outside the change).
+- Added 2026-11-03, 1 case:
+  - 2026-11-03: "the source driver as its own executable" (step 9, S7) saw both tests fail
+    once each while VM gates ran.

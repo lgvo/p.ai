@@ -24,9 +24,10 @@ import (
 
 // A receive service's pre-receive hook checks the push inside receive-pack,
 // where the pushed objects are still kept apart, and asks the driver to
-// approve it over a socket of that push only. The hook executes the program
-// running the driver as `<program> git-hook`, which calls
-// RunPreReceiveHook: `p git-hook` in the daemon.
+// approve it over a socket of that push only. The hook executes the
+// executable New was given as `<executable> git-hook`, which calls
+// RunPreReceiveHook: `p-source-git git-hook`, the file the daemon checked
+// and started the driver from.
 
 // hookRequest is the hook's one request.
 type hookRequest struct {
@@ -43,8 +44,8 @@ var errPushRefused = errors.New("P's Git service refused the push")
 // hooksDirectory holds the pre-receive hook and the per-push sockets.
 func (d *Driver) hooksDirectory() string { return filepath.Join(d.storage, "git-hooks") }
 
-// installHook writes the pre-receive hook, which executes the program
-// running the driver as `<program> git-hook`, into the hooks directory, a
+// installHook writes the pre-receive hook, which executes the hook's
+// executable as `<executable> git-hook`, into the hooks directory, a
 // private directory of the storage. Writing it again is harmless: a
 // receive-pack reads either copy whole.
 func (d *Driver) installHook() error {
@@ -55,19 +56,12 @@ func (d *Driver) installHook() error {
 	if err := privateDirectory(dir); err != nil {
 		return err
 	}
-	executable, err := os.Executable()
-	if err != nil {
-		return err
-	}
-	if strings.ContainsAny(executable, "'\n\r") {
-		return errors.New("the driver's program path cannot be quoted for the hook")
-	}
 	temp, err := os.CreateTemp(dir, ".pre-receive-")
 	if err != nil {
 		return err
 	}
 	defer os.Remove(temp.Name())
-	_, err = temp.WriteString("#!/bin/sh\nexec '" + executable + "' git-hook\n")
+	_, err = temp.WriteString("#!/bin/sh\nexec '" + d.hook + "' git-hook\n")
 	if err = errors.Join(err, temp.Chmod(0o700), temp.Close()); err != nil {
 		return err
 	}

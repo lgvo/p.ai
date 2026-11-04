@@ -195,6 +195,19 @@ must keep Discard and Delete refused with `attachment_active`, also while
 restarts fail their launch checks, until the restarted driver settles the
 terminal ended. A new attachment must then work and Discard must complete.
 
+Kill the source driver with SIGKILL while the daemon runs. The selection
+`60-source-driver-restart.sh` gives `p-source-git` a Git wrapper that holds a
+command after it ran, and kills the driver once after a session's push was
+approved and its head moved, and once after a session creation's head was
+created, each before the driver answered. The supervisor must start a new
+driver, which ends the dead driver's receive-pack; the dead driver's Git
+child must die with its process group. The push's lease must be released:
+the next creation's admission and a Discard, which wait for every lease, must
+complete. The creation must settle through the restarted driver and complete,
+after `p operation retry` when it blocked. Git must have run the push's
+receive-pack and the head creation once each, and the restarted driver must
+serve the next push.
+
 When Incus is unavailable, verify cleanup remains incomplete, session/project
 identity and durable confirmed operation state survive restart, and existing
 authorization restrictions remain intact. Restore Incus and resume that same

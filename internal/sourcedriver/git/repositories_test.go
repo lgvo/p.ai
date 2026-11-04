@@ -71,7 +71,7 @@ func TestCheckMakesThePrivateStorageAndRefusesAnUnsafeOne(t *testing.T) {
 	if err := f.driver.Check(t.Context()); err == nil {
 		t.Fatal("Check of a group-writable repositories directory succeeded")
 	}
-	orphan, err := New(filepath.Join(t.TempDir(), "missing", "source"), []byte(`{}`))
+	orphan, err := New(filepath.Join(t.TempDir(), "missing", "source"), localConfig(), testBinary())
 	if err != nil {
 		t.Fatal(err)
 	}

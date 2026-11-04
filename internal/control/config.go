@@ -38,7 +38,7 @@ type EventsConfig struct {
 // RuntimeConfig is trusted instance configuration. Session requests cannot
 // supply or widen these values.
 type RuntimeConfig struct {
-	Driver               RuntimeDriverConfig      `json:"driver"`
+	Driver               DriverConfig             `json:"driver"`
 	EndpointPrefix       string                   `json:"endpoint_prefix"`
 	DiskSourceCeilings   []string                 `json:"disk_source_ceilings"`
 	BaseImageFingerprint string                   `json:"base_image_fingerprint"`
@@ -49,25 +49,26 @@ type RuntimeConfig struct {
 	AgentAdapter         *AgentAdapterConfig      `json:"agent_adapter,omitempty"`
 }
 
-// RuntimeDriverConfig is the runtime driver executable P runs, pinned by its
-// path and SHA-256, and that driver's own settings. Only the driver
-// interprets Config; the daemon's launch checks examine the executable each
-// time it starts the driver.
-type RuntimeDriverConfig struct {
+// DriverConfig is a driver executable P runs, the runtime driver or the
+// source driver, pinned by its path and SHA-256, and that driver's own
+// settings. Only the driver interprets Config; the daemon's launch checks
+// examine the executable each time it starts the driver.
+type DriverConfig struct {
 	Path   string          `json:"path"`
 	SHA256 string          `json:"sha256"`
 	Config json.RawMessage `json:"config"`
 }
 
-func (d RuntimeDriverConfig) validate() error {
+// validate checks the driver configured at field, such as runtime.driver.
+func (d DriverConfig) validate(field string) error {
 	if !filepath.IsAbs(d.Path) || filepath.Clean(d.Path) != d.Path {
-		return errors.New("runtime.driver.path must be an absolute clean path")
+		return fmt.Errorf("%s.path must be an absolute clean path", field)
 	}
 	if !validFingerprint(d.SHA256) {
-		return errors.New("runtime.driver.sha256 must be 64 lowercase hex digits")
+		return fmt.Errorf("%s.sha256 must be 64 lowercase hex digits", field)
 	}
 	if config := bytes.TrimSpace(d.Config); len(config) == 0 || config[0] != '{' {
-		return errors.New("runtime.driver.config must be a JSON object")
+		return fmt.Errorf("%s.config must be a JSON object", field)
 	}
 	return nil
 }
@@ -211,29 +212,8 @@ func StoredProjectPolicyShapeSHA(raw json.RawMessage) (string, error) {
 
 // GitConfig selects the source driver and P's private Git listener.
 type GitConfig struct {
-	Listen string             `json:"listen"`
-	Driver SourceDriverConfig `json:"driver"`
-}
-
-// GitDriver names the bundled Git source driver, compiled into P and the
-// only source driver P knows.
-const GitDriver = "git"
-
-// SourceDriverConfig selects the source driver P uses, by name, and carries
-// that driver's own settings. Only the driver interprets Config.
-type SourceDriverConfig struct {
-	Name   string          `json:"name"`
-	Config json.RawMessage `json:"config"`
-}
-
-func (d SourceDriverConfig) validate() error {
-	if d.Name != GitDriver {
-		return fmt.Errorf("git.driver.name must be %q", GitDriver)
-	}
-	if config := bytes.TrimSpace(d.Config); len(config) == 0 || config[0] != '{' {
-		return errors.New("git.driver.config must be a JSON object")
-	}
-	return nil
+	Listen string       `json:"listen"`
+	Driver DriverConfig `json:"driver"`
 }
 
 // CheckTrustedAncestors rejects paths below an untrusted writable or symlinked
@@ -323,7 +303,7 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 		if err != nil || n < 0 || n > 65535 {
 			return cfg, errors.New("git.listen requires a valid TCP port")
 		}
-		if err := cfg.Git.Driver.validate(); err != nil {
+		if err := cfg.Git.Driver.validate("git.driver"); err != nil {
 			return cfg, err
 		}
 	}
@@ -354,7 +334,7 @@ func loadHostConfig(path string, checkPath func(string) error) (HostConfig, erro
 			mapped && r.ProjectPolicies == nil {
 			return cfg, errors.New("runtime requires Git, a pinned image and a confined baseline policy")
 		}
-		if err := r.Driver.validate(); err != nil {
+		if err := r.Driver.validate("runtime.driver"); err != nil {
 			return cfg, err
 		}
 		if err := checkPath(r.EndpointPrefix); err != nil {

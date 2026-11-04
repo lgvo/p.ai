@@ -98,9 +98,12 @@ exactly make it an error, never a shorter list.
 ### Driver executable
 
 The daemon starts the driver executable that `runtime.driver` names and
-supervises it while the daemon runs. Before every start, and before hashing,
-it applies the launch checks, so that only root or P's account can change the
-file between the check and the start:
+supervises it while the daemon runs. It starts and supervises the source
+driver's executable, `git.driver`, the same way
+([communication boundaries](communication-boundaries.md#daemon-and-source-driver));
+this section says where the two differ. Before every start, and before
+hashing, it applies the launch checks, so that only root or P's account can
+change the file between the check and the start:
 
 - the executable's directory and each of its ancestors: a directory, not a
   symbolic link, owned by root or P's account and writable by neither group
@@ -113,29 +116,37 @@ file between the check and the start:
 
 The daemon then hashes the open file it checked against `sha256` and starts
 that same file through its descriptor, so a file put at the path after the
-check never runs. The driver gets no argument but its path, an empty
-environment, `/dev/null` as input, the daemon's standard error for its output,
-and its protocol connection, one end of a Unix socket pair, on descriptor 3.
-Only the hello configures it: the daemon sends the protocol version, the
-driver's `config` and the settings core owns that a driver needs (the P
-instance ID, the endpoint prefix, the disk-source ceilings, the builder
-storage pool and the public-egress substrate), and the driver answers with the
-version it agreed and its capabilities, or refuses. If the first start fails
-its launch checks, its digest, its exec or its hello, including a protocol
-version the driver does not speak, the daemon does not start.
+check never runs. The driver gets no argument but its path, `/dev/null` as
+input, the daemon's standard error for its output, and its protocol
+connection, one end of a Unix socket pair, on descriptor 3. The runtime
+driver gets an empty environment; the source driver gets the daemon's `HOME`
+and `SSH_AUTH_SOCK` and nothing else. Only the hello configures a driver: the
+daemon sends the protocol version, the driver's `config` and the settings
+core owns that the driver needs (for the runtime driver the P instance ID,
+the endpoint prefix, the disk-source ceilings, the builder storage pool and
+the public-egress substrate; for the source driver its storage, the state
+directory, and the path of the file checked, which its Git hook executes),
+and the driver answers with the version it agreed and what it
+describes, or refuses. If the first start fails its launch checks, its
+digest, its exec or its hello, including a protocol version the driver does
+not speak, the daemon does not start.
 
-When the driver exits or its connection is lost, the daemon kills it if it
-still runs and starts it again, with the same checks. It waits 100 ms before
-the first restart and twice as long before each next one, up to 30 seconds; a
-driver that ran for a minute starts the waits over. A restarted driver must
-describe the same capabilities as at the first start. While the driver is
-down, every call fails as unavailable. A call in flight when the connection is
-lost ends as unavailable if it is a read, or if it is an effect that took a
-gate that never ran, which proves nothing happened; any other effect
-ends with an unknown outcome, which core settles through the restarted driver
-and never sends again. Terminals end unproven ([attachment](#attachment)). The
-daemon does not detect a driver that hangs with its connection open
-([debt](debts/state-safety.md#a-hung-runtime-driver-is-never-restarted)).
+When a driver exits or its connection is lost, the daemon kills its process
+group, the driver and what it started there, and starts it again, with the
+same checks. It waits
+100 ms before the first restart and twice as long before each next one, up to
+30 seconds; a driver that ran for a minute starts the waits over. A restarted
+driver must describe the same as at the first start. The source driver also
+passes its `Check` at every start before it serves; a restarted one ends
+there the Git services the dead one left running. While a driver is down,
+every call to it fails as unavailable. A call in flight when the connection
+is lost ends as unavailable if it is a read, or if it is an effect that took a
+gate that never ran, which proves nothing happened; any other effect ends
+with an unknown outcome, which core settles through the restarted driver and
+never sends again. Terminals end unproven ([attachment](#attachment)); a Git
+service keeps its lease until the restarted source driver settles it ended.
+The daemon does not detect a driver that hangs with its connection open
+([debt](debts/state-safety.md#a-hung-driver-is-never-restarted)).
 
 ## Incus boundary
 

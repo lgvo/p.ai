@@ -12,7 +12,7 @@ import (
 func TestTheDriverStartsFromItsPinnedExecutableWithItsConfigAndCoresSettings(t *testing.T) {
 	config := json.RawMessage(`{"binary":"/run/current-system/sw/bin/incus","user_socket":"/var/lib/incus/unix.socket.user","project":"user-1000"}`)
 	digest := strings.Repeat("0f", 32)
-	cfg := control.RuntimeConfig{Driver: control.RuntimeDriverConfig{Path: "/opt/p/bin/p-runtime-incus", SHA256: digest, Config: config},
+	cfg := control.RuntimeConfig{Driver: control.DriverConfig{Path: "/opt/p/bin/p-runtime-incus", SHA256: digest, Config: config},
 		EndpointPrefix: "/var/lib/p/endpoints", DiskSourceCeilings: []string{"/srv/p"},
 		Environment: &control.EnvironmentConfig{System: "x86_64-linux", BuilderStoragePool: "builders"},
 		PublicEgress: &control.PublicEgressConfig{Network: "p-public", ACL: "p-public-acl", BridgeIPv4: "10.233.0.1/24", DNS: []string{"1.1.1.1"},

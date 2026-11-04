@@ -311,7 +311,7 @@ may create only the already reserved `refs/heads/main` on its first push.
 The first update's approval consumes a durable, single-use creation grant
 before Git commits the ref: after the source driver's pre-receive check, core's
 `Approve` consumes it. Opening a receive connection or a dry-run push does not
-consume it. If the daemon fails after
+consume it. If the daemon or the source driver fails after
 that check but before the ref outcome is known, P keeps the grant consumed
 rather than permitting a second, potentially unrelated creation. If `main` is
 then absent, that session can no longer create it. An established bootstrap

@@ -21,6 +21,7 @@ channels.
 - [Origin communication](#origin-communication)
 - [Destructive operations](#destructive-operations)
 - [Daemon and runtime driver](#daemon-and-runtime-driver)
+- [Daemon and source driver](#daemon-and-source-driver)
 - [Image-build communication](#image-build-communication)
 - [Future attempts and Git-triggered checks](#future-attempts-and-git-triggered-checks)
 - [Attachment](#attachment)
@@ -469,6 +470,53 @@ when the connection is lost or the call is cancelled is waited for, and the
 call then ends by what the gate decided. The daemon restarts the driver when
 it exits or its connection is lost.
 
+## Daemon and source driver
+
+The daemon reaches P's repositories, every Git effect and the origin through
+the source driver, the `p-source-git` executable, which it starts and
+supervises as it does the runtime driver, with the same launch checks
+([runtime isolation](runtime-isolation.md#driver-executable)). The driver runs
+as P's account with the daemon's `HOME` and `SSH_AUTH_SOCK` and no other
+environment, so that it reaches origins with that account's OpenSSH
+configuration, known hosts and agent ([host SSH and Git
+runner](#host-ssh-and-git-runner)). It inherits no `PATH`: its `config` names
+the `git` and `ssh` it runs. The daemon never hands it SQLite, session keys,
+the SSH host key or the Incus socket.
+
+They talk over one Unix socket pair per start of the driver, with the runtime
+driver protocol's framing, strict decoding and error kinds:
+
+- The connection begins with a hello. The daemon sends the protocol version,
+  `p.source-driver/v1`, the driver's `config` from host configuration, its
+  storage, the state directory, and the path of its executable, the file the
+  launch checks passed; the driver answers with the version it agreed and its
+  description (backend, version and the SSH command words of its Git
+  service), or refuses.
+- The daemon calls the driver's operations in P's terms. The driver calls
+  back the gate of the call it serves, right before that call's first effect,
+  and, while it serves a `ServeGit` call, that call's `open` and `approve`:
+  core opens the service, which checks the key's principal and takes the
+  lease, and approves the push's one head update.
+- Each `ServeGit` stream has a connection of its own: a socket pair that
+  carries the SSH channel's input one way and Git's output the other, and a
+  pipe for the channel's standard error. The daemon passes their far ends with
+  the request (`SCM_RIGHTS`).
+- The Git service's pre-receive hook is a script in the driver's storage that
+  executes the driver's executable at the path the hello gave, as
+  `p-source-git git-hook`. The hook checks
+  the update and asks the driver over a socket of that push only; the driver
+  asks core's `approve`. No `p` command takes part.
+
+When the connection is lost, a read in flight ends as unavailable, and so does
+an effect whose gate never ran; any other effect in flight ends with an
+unknown outcome. Head creations and deletions settle through the restarted
+driver and are never sent again. A lost `ServeGit` keeps its lease until the
+restarted driver settles the service ended: the daemon kills the dead
+driver's process group before the restart, and the restarted driver ends the
+Git services and the Git commands against an origin that driver left running
+before it serves. The session's Git client sees a failed push; no push is
+replayed.
+
 ## Image-build communication
 
 Project-controlled evaluation and builds run through the isolation boundary in
@@ -615,8 +663,11 @@ interface is owned by
 | Bifrost administration (post-MVP) | authenticated with a host-only credential; session keys rejected | native Bifrost configuration |
 
 No Incus socket, host SSH agent, host control socket, or general LAN
-route is mounted into a session. The runtime driver has no listener: the
-daemon gives it its connection and each terminal's as socket pairs.
+route is mounted into a session. Neither driver has a listener: the daemon
+gives each its connection as a socket pair, with each of the runtime
+driver's terminals and each of the source driver's Git streams on a
+connection of its own. The source driver's hook sockets are private to it,
+one per push, in its storage.
 
 ## Failures, retries, and versioning
 
@@ -626,6 +677,7 @@ daemon gives it its connection and each terminal's as socket pairs.
 | Cross-authority mutating RPC | operation/idempotency key plus persisted P phase |
 | Runtime mutation | the runtime driver settles an unknown outcome from native state (on Incus, its operations and current state); core never resends a non-idempotent effect or duplicates the backend's phases |
 | Runtime driver connection | a lost connection ends an effect in flight with an unknown outcome, unless its gate never ran, and a read as unavailable; the daemon restarts the driver with a bounded backoff, and calls fail as unavailable until it is back; the first start's failed launch check, digest or protocol version refuses daemon start |
+| Source driver connection | as for the runtime driver; a lost Git service keeps its lease until the restarted driver settles it ended, and its push is never replayed |
 | Agent status report | latest valid receive wins while unattended |
 | Git push | normal Git atomic/ref semantics; explicit retry |
 | Origin refresh | interrupted refresh leaves current state unknown; the next explicit operation refreshes again |
@@ -635,8 +687,8 @@ daemon gives it its connection and each terminal's as socket pairs.
 
 RPC and status payloads carry explicit version fields. Git protocol behavior is
 Git's; P versions its ref-policy implementation and stored operation schema.
-The daemon and the runtime driver agree the driver protocol's version in the
-hello and refuse any other. P supports fresh installs only: it creates its
+The daemon and each driver agree that driver's protocol version in the hello
+and refuse any other. P supports fresh installs only: it creates its
 state schema in a new state directory, never migrates it, and startup fails
 clearly when the stored schema version is not the binary's.
 

@@ -18,7 +18,7 @@ runner and typed session asset plans are now available.
 
 | Component | MVP choice | Boundary |
 |---|---|---|
-| Language | Go, latest pinned stable toolchain | one daemon/client binary, `p`, and the runtime driver executable, `p-runtime-incus` |
+| Language | Go, latest pinned stable toolchain | one daemon/client binary, `p`, and the two driver executables, `p-runtime-incus` and `p-source-git` |
 | State | SQLite through `database/sql` and `modernc.org/sqlite` | P identity, policy snapshots, operations, and indexes only |
 | API | NDJSON-RPC 2.0 over Unix streams | direct local Unix for MVP; SSH-to-Unix later |
 | TUI | Bubble Tea v2 and Lip Gloss v2 | Live API client; built-in subsequence filtering |
@@ -375,26 +375,38 @@ host (`Describe`, `Check`), Git's syntax for the names P stores
 (`CheckNames`), repositories, heads with compare-and-swap, commits (including
 the commit `Export` for image builds), the Git edits that rename a session's
 clone (`RenameWorkspace`), the Git service behind P's endpoint (`ServeGit`),
-the origin, and `Settle` for an effect whose outcome is unknown. Host
-configuration selects it by name in `git.driver` ([control API](control-api.md));
-core records the driver's backend at its first start and refuses to start with
-another backend while any project exists.
-The only driver is `git`, `internal/sourcedriver/git`, which runs inside the
-daemon over the state directory; an in-memory driver
-(`internal/sourcedriver/memory`) and a conformance suite
-(`internal/sourcedriver/conformance`) show that a driver keeps the contract,
-and the Git driver runs the suite on real Git. The daemon starts the driver
-and checks its storage and Git tools before serving; it holds only
-`sourcedriver.Driver`, and no other code runs `git` or `ssh` on the host.
+the origin, and `Settle` for an effect whose outcome is unknown.
+The driver is a separate executable, as the runtime driver is: host
+configuration pins it by path and SHA-256 in `git.driver`, with that driver's
+own settings ([control API](control-api.md)), and core records the driver's
+backend at its first start and refuses to start with another backend while
+any project exists. The only driver is the Git driver,
+`internal/sourcedriver/git`, which the `p-source-git` executable shipped with
+P serves over the state directory. The daemon starts, checks and supervises
+it as it does the runtime driver
+([driver executable](runtime-isolation.md#driver-executable)); it holds only
+`sourcedriver.Driver`, which the protocol client implements, and no other
+code runs `git` or `ssh` on the host.
+
+The source driver protocol (`internal/sourcedriver/protocol`,
+`p.source-driver/v1`) shares its mechanism with the runtime driver's in
+`internal/driverwire`; what it carries, the `ServeGit` streams included, is in
+[communication boundaries](communication-boundaries.md#daemon-and-source-driver).
+An in-memory driver (`internal/sourcedriver/memory`) and a conformance suite
+(`internal/sourcedriver/conformance`) show that a driver keeps the contract;
+the Git driver runs the suite on real Git, and both run it again behind the
+protocol.
 P's repositories, heads, commits, the commit export for image builds, Git's
 syntax for names and origin URLs, the Git edits of a renamed session's clone,
-and the origin's observation, fetch, comparison and push go through it.
+and the origin's observation, fetch, comparison and push go through the
+driver.
 Core holds each project's origin lock and decides what an origin operation
 may do; the driver performs it. Core makes each build's private staging
 directory, the driver exports the commit's Git bundle into it, and core
 removes it after the build.
-The Git service runs in the driver too: its pre-receive hook checks the
-proposed ref update over a per-push socket, and core's lease is held until
+The Git service runs in the driver too: its pre-receive hook,
+`p-source-git git-hook`, checks the proposed ref update and asks the driver
+over a per-push socket, and core's lease is held until
 `ServeGit` returns from a served or refused service, or, after a lost call,
 until `Settle` reports the service ended. The session's Git SSH wrapper, `/usr/libexec/p/git-ssh`, is a file of
 the runtime driver, which installs it in every session.
